@@ -9,7 +9,7 @@ from psycopg2.extras import execute_values
 import datetime
 import time
 import schedule
-#from notifications import notisend
+from notifications import notisend
 from concurrent.futures import ThreadPoolExecutor
 client = Client()
 import pandas as pd
