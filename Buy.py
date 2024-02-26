@@ -1,7 +1,7 @@
 from tokenize import Double
 import requests
 from binance.spot import Spot as Client
-from binance.lib.utils import config_logging 
+#from binance.lib.utils import config_logging 
 from datetime import datetime as dt
 import json
 import psycopg2
@@ -127,41 +127,7 @@ def task(db_resp, api_resp, data):
 
 
 
-# Replace these with your Binance API key and secret key
-api_key = 'qelJwKu3TDFUzM3ZUBR1tLsQIgRXcVL2FrQwq4MHh0pi9V3lc76CffgYqnqoO9V5'
-api_secret = 'MIF6NZpnBRLSPpCwizeURQZnagcSriTOKX0U7OpZrGU3sRgNms8wcjUd00kW6xRf'
-client = Client(api_key, api_secret)
-# Initialize Binance client with ccxt
-binance = ccxt.binance({
-    'apiKey': api_key,
-    'secret': api_secret
-})
 
-# Replace SYMBOL, QUANTITY, and PRICE with your desired values
-symbol = 'BNB/USDT'
-quantity = 0.1  # The amount of BNB you want to buy
-price = 400  # The price at which you want to buy BNB
-
-def create_limit_buy_order(symbol, quantity, price):
-    try:
-        # Create a limit buy order
-        #order = binance.create_limit_buy_order(symbol, quantity, price)
-        order = binance.create_market_buy_order(symbol, quantity)
-
-        print(f"Limit buy order created: {order}")
-    except ccxt.BaseError as e:
-        print(f"Error: {e}")
-        notisend( {e})
-
-
-
-def coin_buy(data):
-    try:
-        client.send('create_order', data)
-        update_coin_record(data)
-    except Exception as e:
-        print(e)
-        notisend(e)
 
 def update_coin_record(dbdata):
     try:
