@@ -22,9 +22,9 @@ import ccxt
 def get_db_connection():
     connection = psycopg2.connect(user="postgres",
                                   password="Harsha508",
-                                  host="harshacrypto.cf0e8ug6ynu6.ap-south-1.rds.amazonaws.com",
+                                  host="prahacrypto08.cf0e8ug6ynu6.ap-south-1.rds.amazonaws.com",
                                   port="5432",
-                                  database="crypto")
+                                  database="prahacrypto08")
 
     cursor = connection.cursor()
     return connection, cursor
@@ -52,9 +52,9 @@ def get_results():
     try:
         connection = psycopg2.connect(user="postgres",
                                   password="Harsha508",
-                                  host="harshacrypto.cf0e8ug6ynu6.ap-south-1.rds.amazonaws.com",
+                                  host="prahacrypto08.cf0e8ug6ynu6.ap-south-1.rds.amazonaws.com",
                                   port="5432",
-                                  database="crypto")
+                                  database="prahacrypto08")
         connection.autocommit = True
 
         cursor = connection.cursor()
