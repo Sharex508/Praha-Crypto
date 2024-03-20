@@ -83,10 +83,10 @@ def get_results():
             print("PostgreSQL connection is closed")
 
     
-def get_diff_of_db_api_values():
+def get_diff_of_db_api_values(api_resp):
     start = time.time()
     db_resp = get_results()
-    api_resp = get_data_from_wazirx()
+    #api_resp = get_data_from_wazirx()
     dicts_data = [obj['symbol'] for obj in db_resp]
 
     n = 1000
@@ -127,31 +127,70 @@ def task(db_resp, api_resp, data):
 
 
 
-
-
 def update_coin_record(dbdata):
     try:
         print("came to database update")
-        con = get_db_connection()
-        sql = "UPDATE trading SET status = 1, purchasePrice = {1}, quantity = {2} WHERE symbol = {0}".format(
-            repr(dbdata['symbol']), repr(dbdata['price']), repr(dbdata['quantity'])
-        )
-        print(sql)
-        con[1].execute(sql)
-        con[0].commit()
-        print("i was saved")
+        connection, cursor = get_db_connection()
+        sql = "UPDATE trading SET status = %s, purchasePrice = %s, quantity = %s WHERE symbol = %s"
+        cursor.execute(sql, (1, dbdata['price'], dbdata['quantity'], dbdata['symbol']))
+        connection.commit()
+        print("Record updated successfully")
     except Exception as e:
-        print("i was messed up")
-        notisend(e)
-        print(e)
+        print("Error while updating record:", e)
     finally:
-        con[0].close()
+        cursor.close()
+        connection.close()
+
+
+
+def get_active_trades():
+    """Retrieve active trades with status = 1."""
+    connection, cursor = get_db_connection()
+    try:
+        sql = "SELECT * FROM trading WHERE status='1'"
+        cursor.execute(sql)
+        results = cursor.fetchall()
+        keys = ('symbol', 'initialPrice', 'highPrice', 'lastPrice', 'margin', 'purchasePrice', 'quantity', 'created_at', 'status')
+        data = [dict(zip(keys, obj)) for obj in results]
+        return data
+    except Exception as e:
+        print(f"Error fetching active trades: {e}")
+    finally:
+        cursor.close()
+        connection.close()
+
+def update_last_prices(api_resp):
+    """Update last prices for active trades using existing API response."""
+    db_resp = get_active_trades()
+    for trade in db_resp:
+        symbol = trade['symbol']
+        matching_api_data = next((item for item in api_resp if item["symbol"] == symbol), None)
+        if matching_api_data:
+            new_last_price = matching_api_data['lastPrice']
+            update_coin_last_price(symbol, new_last_price)
+
+
+def update_coin_last_price(symbol, last_price):
+    """Update the last price of a coin in the trading table."""
+    connection, cursor = get_db_connection()
+    try:
+        sql = "UPDATE trading SET lastPrice = %s WHERE symbol = %s"
+        cursor.execute(sql, (last_price, symbol))
+        connection.commit()
+        print(f"Updated last price for {symbol} to {last_price}")
+    except Exception as e:
+        print(f"Error updating last price for {symbol}: {e}")
+    finally:
+        cursor.close()
+        connection.close()
 
 
 def show():
     while True:
         try:
-            get_diff_of_db_api_values()
+            api_resp = get_data_from_wazirx()  # Fetch current prices once
+            get_diff_of_db_api_values(api_resp)  # Use the data for your existing logic
+            update_last_prices(api_resp) 
             time.sleep(10)
         except Exception as e:
             print(f"An error occurred: {e}")
