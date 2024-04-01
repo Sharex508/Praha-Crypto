@@ -38,7 +38,10 @@ def table_Create_crypto():
                     intialPrice       TEXT,
                     highPrice         TEXT,
                     lastPrice         TEXT,
-                    margin            TEXT,
+                    margin3           TEXT,
+                    margin10          TEXT,
+                    margin20          TEXT,
+                    Counter           INTEGER,
                     purchasePrice     TEXT,
                     quantity          TEXT,
                     created_at        TEXT,
@@ -59,10 +62,15 @@ def getall_data(filter='USDT'):
     for obj in resp:
         lprice = float(obj['price'])
         marg = lprice * 1.03
+        marg1 = lprice * 1.10
+        marg2 = lprice * 1.20
+
         obj.update({
             "initialPrice": lprice,
             "highPrice": lprice,
-            "margin": marg,
+            "margin3": marg,
+            "margin10": marg1,
+            "margin20": marg2,
             "purchasePrice": ""
         })
         logging.info('completed')

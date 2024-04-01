@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 client = Client()
 import pandas as pd
 import ccxt
+from assetbuy import buy_asset_with_usd
 
 
 
@@ -121,9 +122,45 @@ def task(db_resp, api_resp, data):
                 dbdata = {"symbol": ele, "side": "buy", "type": "limit", "price": api_last_price, "quantity": quantity, "recvWindow": 10000, "timestamp": int(time.time() * 1000)}
                 notisend({"symbol": ele, "side": "buy", "type": "limit", "initial_price": initial_price, "purchasing_price": api_last_price, "db_margin": db_margin, "quantity": quantity})
                 #create_limit_buy_order(dbdata['symbol'].replace('USDT', '/USDT'), dbdata['quantity'], dbdata['price'], dbdata)
-
+                buy_asset_with_usd()
                 # Update coin record here
                 update_coin_record(dbdata)
+
+
+
+def task(db_resp, api_resp, data):
+    for ele in data:
+        db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
+        if not db_match_data:
+            continue
+        api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
+        if not api_match_data:
+            continue
+        
+        if api_match_data['symbol'] == db_match_data['symbol']:
+            api_last_price = float(api_match_data['lastPrice'])
+            db_margin = float(db_match_data['margin'])
+            initial_price = float(db_match_data['intialPrice'])
+
+            if api_last_price >= db_margin:
+                # Assuming you want to spend a fixed USD amount per buy operation
+                usd_amount = 5  # Specify the USD amount you want to spend
+                
+                # Extract the base asset symbol by removing 'USDT'
+                base_asset_symbol = ele.replace('USDT', '')
+                
+                # Call the function to buy the asset with the specified USD amount
+                buy_asset_with_usd(base_asset_symbol, usd_amount)
+                
+                # Here you may want to update your database or notify about the purchase
+                # This part depends on your specific requirements
+
+# Example implementation of buy_asset_with_usd
+def buy_asset_with_usd(asset_symbol, usd_amount):
+    print(f"Attempting to purchase {usd_amount} USD worth of {asset_symbol}")
+    # This function would contain the logic to buy the specified asset using the Binance API
+    # Implement the purchase logic here based on the previous discussions
+
 
 
 
