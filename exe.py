@@ -1,0 +1,27 @@
+from Buy import get_diff_of_db_api_values, update_last_prices, get_data_from_wazirx
+from coinNotification import notify_price_increase
+import time
+
+def main():
+    while True:
+        try:
+            # Step 1: Fetch the latest price data
+            api_resp = get_data_from_wazirx()  # Fetch current prices from Binance API
+            
+            # Step 2: Handle purchasing logic (buy.py)
+            get_diff_of_db_api_values(api_resp)  # Perform price comparisons, decide on purchases
+            
+            # Step 3: Update last prices in the database (buy.py)
+            update_last_prices(api_resp)  # Update the DB with the latest prices
+            
+            # Step 4: Trigger notifications for price increases or decreases (coin_notification.py)
+            notify_price_increase()  # Notify if there are significant price changes
+            
+            # Step 5: Wait for 10 seconds before the next execution cycle
+            time.sleep(10)  # Control the loop to run every 10 seconds
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            time.sleep(10)
+
+if __name__ == "__main__":
+    main()

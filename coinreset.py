@@ -39,11 +39,18 @@ def table_Create_crypto():
                     highPrice         TEXT,
                     lastPrice         TEXT,
                     margin3           TEXT,
+                    margin5           TEXT,
                     margin10          TEXT,
                     margin20          TEXT,
-                    Counter           INTEGER,
                     purchasePrice     TEXT,
-                    quantity          TEXT,
+                    margin3count      TEXT,
+                    Margin5count      TEXT,
+                    Margin10count     TEXT,
+                    Margin20count     TEXT,
+                    mar3              BOOLEAN DEFAULT FALSE,  
+                    mar5              BOOLEAN DEFAULT FALSE,  
+                    mar10             BOOLEAN DEFAULT FALSE,  
+                    mar20             BOOLEAN DEFAULT FALSE,  
                     created_at        TEXT,
                     status            TEXT  DEFAULT '0'
                     );
@@ -62,15 +69,17 @@ def getall_data(filter='USDT'):
     for obj in resp:
         lprice = float(obj['price'])
         marg = lprice * 1.03
-        marg1 = lprice * 1.10
-        marg2 = lprice * 1.20
+        marg1 = lprice * 1.05
+        marg2 = lprice * 1.10
+        marg3 = lprice * 1.20
 
         obj.update({
             "initialPrice": lprice,
             "highPrice": lprice,
             "margin3": marg,
-            "margin10": marg1,
-            "margin20": marg2,
+            "margin5": marg1,
+            "margin10": marg2,
+            "margin20": marg3,
             "purchasePrice": ""
         })
         logging.info('completed')
@@ -84,24 +93,24 @@ def insert_data_db(resp):
             connection.autocommit = True
 
             with connection.cursor() as cursor:
-                columns = resp[0].keys()
-                query = "INSERT INTO trading_test ({}) VALUES %s".format(
-                    ','.join(columns))
+                # Get column names from the first element of `resp`
+                columns = ','.join(resp[0].keys())
+                # Prepare query string with all columns
+                query = f"INSERT INTO trading ({columns}) VALUES %s"
 
+                # Prepare the data tuples for insertion
                 values = [
-                    [value.strip() if isinstance(value, str) else str(value) for value in obj.values()]
+                    [value.strip() if isinstance(value, str) else value for value in obj.values()]
                     for obj in resp
                 ]
                 tuples = [tuple(x) for x in values]
-                cursor.executemany(
-                    "INSERT INTO trading VALUES(%s,%s,%s,%s,%s,%s)", tuples)
-                logging.info("Data Inserted successfully in trading table.......... ")
+
+                # Execute batch insert
+                psycopg2.extras.execute_batch(cursor, query, tuples)
+                logging.info("Data inserted successfully in trading table.")
 
     except Exception as error:
-        logging.error(f"Error while connecting to PostgreSQL: {error}")
-    finally:
-        if connection:
-            logging.info("PostgreSQL connection is closed")
+        logging.error(f"Error while inserting data into PostgreSQL: {error}")
 
 
 def main():
