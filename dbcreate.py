@@ -4,7 +4,7 @@ import psycopg2
 from psycopg2 import Error
   
 conn = psycopg2.connect(
-   database="postgres", user='postgres', password='Harsha508', host='prahacrypto08.cf0e8ug6ynu6.ap-south-1.rds.amazonaws.com', port= '5432'
+   database="postgres", user='postgres', password='Harsha508', host='prahacrypto.c3cca44au3xf.ap-south-1.rds.amazonaws.com', port= '5432'
 )
 conn.autocommit = True
 
@@ -12,7 +12,7 @@ conn.autocommit = True
 cursor = conn.cursor()
 
 #Preparing query to create a database  
-sql = '''CREATE database prahacrypto08''';
+sql = '''CREATE database prahacrypto''';
 
 #Creating a database
 cursor.execute(sql)
