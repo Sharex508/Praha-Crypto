@@ -5,9 +5,9 @@ from notifications import notisend
 def get_db_connection():
     connection = psycopg2.connect(user="postgres",
                                   password="Harsha508",
-                                  host="prahacrypto08.cf0e8ug6ynu6.ap-south-1.rds.amazonaws.com",
+                                  host="harshacry.c3cca44au3xf.ap-south-1.rds.amazonaws.com",
                                   port="5432",
-                                  database="prahacrypto08")
+                                  database="HarshaCry")
     return connection, connection.cursor()
 
 def get_active_trades():
