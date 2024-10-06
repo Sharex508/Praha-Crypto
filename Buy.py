@@ -2,7 +2,7 @@ from tokenize import Double
 import requests
 #from binance.spot import Spot as Client
 #from binance.lib.utils import config_logging 
-from datetime import datetime as dt
+#from datetime import datetime as dt
 import json
 import psycopg2
 from psycopg2.extras import execute_values
@@ -10,7 +10,7 @@ from notifications import notisend
 from concurrent.futures import ThreadPoolExecutor
 #client = Client()
 #import pandas as pd
-import ccxt
+#import ccxt
 from assetbuy import buy_asset_with_usd
 
 #client = Client()
