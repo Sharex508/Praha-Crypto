@@ -64,7 +64,7 @@ def getall_data(filter='USDT'):
     resp = [d for d in data if filter in d['symbol'] and 'price' in d]
 
     for obj in resp:
-        lprice = float(obj['price'])
+        lprice = float(obj['price'])  # Mapping 'price' to relevant columns
         marg = lprice * 1.03
         marg1 = lprice * 1.05
         marg2 = lprice * 1.10
@@ -73,6 +73,7 @@ def getall_data(filter='USDT'):
         obj.update({
             "initialPrice": lprice,
             "highPrice": lprice,
+            "lastPrice": lprice,  # Mapping 'price' to 'lastPrice'
             "margin3": marg,
             "margin5": marg1,
             "margin10": marg2,
