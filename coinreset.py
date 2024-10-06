@@ -3,6 +3,7 @@ import psycopg2
 from psycopg2 import Error
 import requests
 import logging
+from psycopg2.extras import execute_batch  # Import extras module
 
 logging.basicConfig(level=logging.INFO)
 
