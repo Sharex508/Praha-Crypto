@@ -7,7 +7,6 @@ from psycopg2.extras import execute_batch  # Import extras module
 
 logging.basicConfig(level=logging.INFO)
 
-
 def get_database_connection():
     return psycopg2.connect(
         user="postgres",
@@ -17,7 +16,6 @@ def get_database_connection():
         database="HarshaCry",
     )
 
-
 def table_Delete_crypto():
     try:
         with get_database_connection() as conn:
@@ -26,7 +24,6 @@ def table_Delete_crypto():
                 logging.info("Rows deleted successfully...")
     except psycopg2.Error as e:
         logging.error(f"Error deleting rows: {e}")
-
 
 def table_Create_crypto():
     try:
@@ -57,10 +54,9 @@ def table_Create_crypto():
                     );
                 '''
                 cursor.execute(create_table_query)
-                logging.info("Table created successfully in PostgreSQL - trading_test")
+                logging.info("Table created successfully in PostgreSQL - trading")
     except (Exception, Error) as error:
-        logging.error(f"Error while connecting to PostgreSQL: {error}")
-
+        logging.error(f"Error while creating table in PostgreSQL: {error}")
 
 def getall_data(filter='USDT'):
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
@@ -83,10 +79,9 @@ def getall_data(filter='USDT'):
             "margin20": marg3,
             "purchasePrice": ""
         })
-        logging.info('completed')
+        logging.info('Completed processing data for %s', obj['symbol'])
 
     return resp
-
 
 def insert_data_db(resp):
     try:
@@ -96,8 +91,9 @@ def insert_data_db(resp):
             with connection.cursor() as cursor:
                 # Get column names from the first element of `resp`
                 columns = ','.join(resp[0].keys())
-                # Prepare query string with all columns
-                query = f"INSERT INTO trading ({columns}) VALUES %s"
+                # Prepare query string with placeholders for values
+                placeholders = ','.join(['%s'] * len(resp[0]))
+                query = f"INSERT INTO trading ({columns}) VALUES ({placeholders})"
 
                 # Prepare the data tuples for insertion
                 values = [
@@ -107,12 +103,11 @@ def insert_data_db(resp):
                 tuples = [tuple(x) for x in values]
 
                 # Execute batch insert
-                psycopg2.extras.execute_batch(cursor, query, tuples)
+                execute_batch(cursor, query, tuples)
                 logging.info("Data inserted successfully in trading table.")
 
     except Exception as error:
         logging.error(f"Error while inserting data into PostgreSQL: {error}")
-
 
 def main():
     while True:
