@@ -50,6 +50,7 @@ def get_results():
                 'purchasePrice', 'margin3count', 'Margin5count', 'Margin10count', 'Margin20count', 
                 'mar3', 'mar5', 'mar10', 'mar20', 'mar3_purchased', 'mar5_purchased', 'mar10_purchased', 'mar20_purchased')
         data = [dict(zip(keys, obj)) for obj in results]
+        print(data)
         return data
     except Exception as e:
         print(f"Error: {e}")
