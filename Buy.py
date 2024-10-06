@@ -2,7 +2,7 @@ from tokenize import Double
 import requests
 #from binance.spot import Spot as Client
 #from binance.lib.utils import config_logging 
-#from datetime import datetime as dt
+from datetime import datetime as dt
 import json
 import psycopg2
 from psycopg2.extras import execute_values
@@ -168,16 +168,17 @@ def get_active_trades():
         cursor.close()
         connection.close()
 
-#def show():
- #   while True:
-  #      try:
-   #         api_resp = get_data_from_wazirx()
-    #        get_diff_of_db_api_values(api_resp)
-     #       update_last_prices(api_resp)
-      #      time.sleep(10)
-       # except Exception as e:
-        #    print(f"An error occurred: {e}")
-         #   time.sleep(10)
+def show():
+    while True:
+        try:
+            api_resp = get_data_from_wazirx()
+            get_diff_of_db_api_values(api_resp)
+            update_last_prices(api_resp)
+            time.sleep(10)
+        except Exception as e:
+            print(f"An error occurred: {e}")
+            time.sleep(10)
 
-#if __name__ == "__main__":
- #    show()
+if __name__ == "__main__":
+    show()
+
