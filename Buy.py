@@ -1,20 +1,7 @@
-from tokenize import Double
-import requests
-#from binance.spot import Spot as Client
-#from binance.lib.utils import config_logging 
-from datetime import datetime as dt
-import json
-import datetime
 import time
 import psycopg2
-from psycopg2.extras import execute_values
-from notifications import notisend
+import requests
 from concurrent.futures import ThreadPoolExecutor
-#client = Client()
-#import ccxt
-#from assetbuy import buy_asset_with_usd
-
-#client = Client()
 
 def get_db_connection():
     connection = psycopg2.connect(user="postgres",
@@ -25,50 +12,47 @@ def get_db_connection():
     return connection, connection.cursor()
 
 def get_data_from_wazirx(filter='USDT'):
+    """Fetch the current price data from the Binance API"""
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
     return [d for d in data if filter in d['symbol'] and 'price' in d]
 
 def get_results():
+    """Retrieve trading data from the database."""
     connection, cursor = get_db_connection()
     try:
         sql = """
-        SELECT 
-            symbol, intialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
-            margin3count, Margin5count, Margin10count, Margin20count, mar3, mar5, mar10, mar20,
-            SUM(CASE WHEN mar3 = TRUE THEN 1 ELSE 0 END) AS mar3_purchased,
-            SUM(CASE WHEN mar5 = TRUE THEN 1 ELSE 0 END) AS mar5_purchased,
-            SUM(CASE WHEN mar10 = TRUE THEN 1 ELSE 0 END) AS mar10_purchased,
-            SUM(CASE WHEN mar20 = TRUE THEN 1 ELSE 0 END) AS mar20_purchased
+        SELECT symbol, intialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
+               margin3count, Margin5count, Margin10count, Margin20count, mar3, mar5, mar10, mar20
         FROM trading
-        GROUP BY symbol, intialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
-                 margin3count, Margin5count, Margin10count, Margin20count, mar3, mar5, mar10, mar20
         """
         cursor.execute(sql)
         results = cursor.fetchall()
 
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
                 'purchasePrice', 'margin3count', 'Margin5count', 'Margin10count', 'Margin20count', 
-                'mar3', 'mar5', 'mar10', 'mar20', 'mar3_purchased', 'mar5_purchased', 'mar10_purchased', 'mar20_purchased')
+                'mar3', 'mar5', 'mar10', 'mar20')
         data = [dict(zip(keys, obj)) for obj in results]
-        print(data)
         return data
     except Exception as e:
-        print(f"Error: {e}")
+        print(f"Error fetching results: {e}")
     finally:
         cursor.close()
         connection.close()
 
 def get_diff_of_db_api_values(api_resp):
+    """Compare database values with the Binance API data."""
     db_resp = get_results()
     dicts_data = [obj['symbol'] for obj in db_resp]
-    chunk_size = 100
-    chunks = [dicts_data[i:i+chunk_size] for i in range(0, len(dicts_data), chunk_size)]
+    chunk_size = min(20, len(dicts_data))  # Set chunk size small to avoid overwhelming threads
+    chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
     
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    # Use ThreadPoolExecutor to parallelize tasks
+    with ThreadPoolExecutor(max_workers=4) as executor:
         for chunk in chunks:
             executor.submit(task, db_resp, api_resp, chunk)
 
 def task(db_resp, api_resp, data):
+    """Perform comparison task for each chunk of symbols."""
     for ele in data:
         db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
         if not db_match_data:
@@ -78,45 +62,38 @@ def task(db_resp, api_resp, data):
             continue
         
         api_last_price = float(api_match_data['lastPrice'])
-        mar3_purchased = db_match_data['mar3_purchased']
-        mar5_purchased = db_match_data['mar5_purchased']
-        mar10_purchased = db_match_data['mar10_purchased']
-        mar20_purchased = db_match_data['mar20_purchased']
-
-        margin3count = int(db_match_data['margin3count'])
-        margin5count = int(db_match_data['Margin5count'])
-        margin10count = int(db_match_data['Margin10count'])
-        margin20count = int(db_match_data['Margin20count'])
-
-        mar3_checked = db_match_data['mar3']
-        mar5_checked = db_match_data['mar5']
-        mar10_checked = db_match_data['mar10']
-        mar20_checked = db_match_data['mar20']
-
-        if mar3_purchased < margin3count and not mar3_checked:
-            db_margin = float(db_match_data['margin3'])
-            margin_level = 'mar3'
-        elif mar5_purchased < margin5count and not mar5_checked:
-            db_margin = float(db_match_data['margin5'])
-            margin_level = 'mar5'
-        elif mar10_purchased < margin10count and not mar10_checked:
-            db_margin = float(db_match_data['margin10'])
-            margin_level = 'mar10'
-        elif mar20_purchased < margin20count and not mar20_checked:
-            db_margin = float(db_match_data['margin20'])
-            margin_level = 'mar20'
-        else:
-            continue
-
-        if api_last_price >= db_margin:
-            print(db_margin)
+        db_margin, margin_level = calculate_margin_level(db_match_data)
+        
+        if db_margin and api_last_price >= db_margin:
             usd_amount = 5
             base_asset_symbol = ele.replace('USDT', '')
-            print(base_asset_symbol)
-            #buy_asset_with_usd(base_asset_symbol, usd_amount)
+            print(f"Buying {base_asset_symbol} at {db_margin}")
             update_margin_status(db_match_data['symbol'], margin_level)
 
+def calculate_margin_level(db_match_data):
+    """Determine which margin level to apply."""
+    mar3_purchased = db_match_data['mar3']
+    mar5_purchased = db_match_data['mar5']
+    mar10_purchased = db_match_data['mar10']
+    mar20_purchased = db_match_data['mar20']
+
+    margin3count = int(db_match_data['margin3count'])
+    margin5count = int(db_match_data['Margin5count'])
+    margin10count = int(db_match_data['Margin10count'])
+    margin20count = int(db_match_data['Margin20count'])
+
+    if mar3_purchased < margin3count:
+        return float(db_match_data['margin3']), 'mar3'
+    elif mar5_purchased < margin5count:
+        return float(db_match_data['margin5']), 'mar5'
+    elif mar10_purchased < margin10count:
+        return float(db_match_data['margin10']), 'mar10'
+    elif mar20_purchased < margin20count:
+        return float(db_match_data['margin20']), 'mar20'
+    return None, None
+
 def update_margin_status(symbol, margin_level):
+    """Update the margin status in the database."""
     connection, cursor = get_db_connection()
     try:
         sql = f"UPDATE trading SET {margin_level} = TRUE, status = '1' WHERE symbol = %s"
@@ -129,6 +106,7 @@ def update_margin_status(symbol, margin_level):
         connection.close()
 
 def update_last_prices(api_resp):
+    """Update last prices in the database."""
     db_resp = get_active_trades()
     updates = []
     for trade in db_resp:
@@ -141,6 +119,7 @@ def update_last_prices(api_resp):
     update_coin_last_price_batch(updates)
 
 def update_coin_last_price_batch(updates):
+    """Batch update last prices in the trading table."""
     if not updates:
         return
     connection, cursor = get_db_connection()
@@ -155,6 +134,7 @@ def update_coin_last_price_batch(updates):
         connection.close()
 
 def get_active_trades():
+    """Retrieve active trades from the database."""
     connection, cursor = get_db_connection()
     try:
         sql = "SELECT * FROM trading WHERE status = '1'"
@@ -173,14 +153,13 @@ def get_active_trades():
 def show():
     while True:
         try:
-            api_resp = get_data_from_wazirx()
-            get_diff_of_db_api_values(api_resp)
-            update_last_prices(api_resp)
-            time.sleep(10)
+            api_resp = get_data_from_wazirx()  # Step 1: Fetch API data
+            get_diff_of_db_api_values(api_resp)  # Step 2: Compare and handle differences
+            update_last_prices(api_resp)  # Step 3: Update last prices
+            time.sleep(5)  # Reduce sleep time to 5 seconds
         except Exception as e:
             print(f"An error occurred: {e}")
-            time.sleep(10)
+            time.sleep(5)
 
 if __name__ == "__main__":
     show()
-
