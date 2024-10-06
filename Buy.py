@@ -4,12 +4,13 @@ import requests
 #from binance.lib.utils import config_logging 
 from datetime import datetime as dt
 import json
+import datetime
+import time
 import psycopg2
 from psycopg2.extras import execute_values
 from notifications import notisend
 from concurrent.futures import ThreadPoolExecutor
 #client = Client()
-#import pandas as pd
 #import ccxt
 #from assetbuy import buy_asset_with_usd
 
