@@ -11,7 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 #client = Client()
 #import pandas as pd
 #import ccxt
-from assetbuy import buy_asset_with_usd
+#from assetbuy import buy_asset_with_usd
 
 #client = Client()
 
