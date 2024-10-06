@@ -53,6 +53,7 @@ def get_diff_of_db_api_values(api_resp):
 
 def task(db_resp, api_resp, data):
     """Perform comparison task for each chunk of symbols."""
+    print("entered into task")
     for ele in data:
         db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
         if not db_match_data:
@@ -67,8 +68,11 @@ def task(db_resp, api_resp, data):
         if db_margin and api_last_price >= db_margin:
             usd_amount = 5
             base_asset_symbol = ele.replace('USDT', '')
-            print(f"Buying {base_asset_symbol} at {db_margin}")
+            print(f"Buying {base_asset_symbol} at {db_margin} for margin level {margin_level}")
             update_margin_status(db_match_data['symbol'], margin_level)
+            print(f"Successfully purchased {base_asset_symbol} at {api_last_price}")
+        else:
+            print(f"No action taken for {ele}. Current price: {api_last_price}, margin level: {db_margin}")
 
 def calculate_margin_level(db_match_data):
     """Determine which margin level to apply."""
@@ -99,6 +103,7 @@ def update_margin_status(symbol, margin_level):
         sql = f"UPDATE trading SET {margin_level} = TRUE, status = '1' WHERE symbol = %s"
         cursor.execute(sql, (symbol,))
         connection.commit()
+        print(f"Updated {symbol} to {margin_level}")
     except Exception as e:
         print(f"Error updating margin status: {e}")
     finally:
@@ -127,6 +132,7 @@ def update_coin_last_price_batch(updates):
         sql = "UPDATE trading SET lastPrice = %s WHERE symbol = %s"
         cursor.executemany(sql, updates)
         connection.commit()
+        print(f"Updated last prices for {len(updates)} symbols")
     except Exception as e:
         print(f"Error updating last prices: {e}")
     finally:
@@ -151,11 +157,16 @@ def get_active_trades():
         connection.close()
 
 def show():
+    start_time = time.time()  # Track the start time for performance analysis
     while True:
         try:
+            print(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
             api_resp = get_data_from_wazirx()  # Step 1: Fetch API data
             get_diff_of_db_api_values(api_resp)  # Step 2: Compare and handle differences
             update_last_prices(api_resp)  # Step 3: Update last prices
+            
+            end_time = time.time()
+            print(f"Iteration completed in {end_time - start_time:.2f} seconds")
             time.sleep(5)  # Reduce sleep time to 5 seconds
         except Exception as e:
             print(f"An error occurred: {e}")
