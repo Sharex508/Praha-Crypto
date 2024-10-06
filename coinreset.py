@@ -33,7 +33,7 @@ def table_Create_crypto():
                     CREATE TABLE IF NOT EXISTS trading
                     (
                     symbol            TEXT    NOT NULL,
-                    intialPrice       TEXT,
+                    intialPrice       TEXT,  -- This is the correct name (misspelled as "intialPrice")
                     highPrice         TEXT,
                     lastPrice         TEXT,
                     margin3           TEXT,
@@ -74,14 +74,14 @@ def getall_data(filter='USDT'):
 
         # Map the 'price' from Binance API to the appropriate columns
         obj.update({
-            "initialPrice": lprice,      # Use this to insert into the initialPrice column
-            "highPrice": lprice,         # Use this to insert into the highPrice column
-            "lastPrice": lprice,         # Use this to insert into the lastPrice column
+            "intialPrice": lprice,      # Use "intialPrice" (the correct column name)
+            "highPrice": lprice,        # Use this to insert into the highPrice column
+            "lastPrice": lprice,        # Use this to insert into the lastPrice column
             "margin3": marg,
             "margin5": marg1,
             "margin10": marg2,
             "margin20": marg3,
-            "purchasePrice": ""          # No purchase price yet
+            "purchasePrice": ""         # No purchase price yet
         })
         logging.info('Completed processing data for %s', obj['symbol'])
 
@@ -94,13 +94,13 @@ def insert_data_db(resp):
 
             with connection.cursor() as cursor:
                 # Define the columns in the trading table where data will be inserted
-                columns = ['symbol', 'initialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 'purchasePrice']
+                columns = ['symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 'purchasePrice']
                 placeholders = ','.join(['%s'] * len(columns))
                 query = f"INSERT INTO trading ({','.join(columns)}) VALUES ({placeholders})"
 
                 # Prepare the data tuples for insertion
                 values = [
-                    [obj['symbol'], obj['initialPrice'], obj['highPrice'], obj['lastPrice'], obj['margin3'], obj['margin5'], obj['margin10'], obj['margin20'], obj['purchasePrice']]
+                    [obj['symbol'], obj['intialPrice'], obj['highPrice'], obj['lastPrice'], obj['margin3'], obj['margin5'], obj['margin10'], obj['margin20'], obj['purchasePrice']]
                     for obj in resp
                 ]
                 tuples = [tuple(x) for x in values]
