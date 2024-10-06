@@ -59,26 +59,29 @@ def table_Create_crypto():
         logging.error(f"Error while creating table in PostgreSQL: {error}")
 
 def getall_data(filter='USDT'):
+    # Fetch data from Binance API
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
 
+    # Filter symbols based on the filter and ensure price exists
     resp = [d for d in data if filter in d['symbol'] and 'price' in d]
 
     for obj in resp:
-        lprice = float(obj['price'])  # Mapping 'price' to relevant columns
+        lprice = float(obj['price'])  # This is the 'price' from Binance
         marg = lprice * 1.03
         marg1 = lprice * 1.05
         marg2 = lprice * 1.10
         marg3 = lprice * 1.20
 
+        # Map the 'price' from Binance API to the appropriate columns
         obj.update({
-            "initialPrice": lprice,
-            "highPrice": lprice,
-            "lastPrice": lprice,  # Mapping 'price' to 'lastPrice'
+            "initialPrice": lprice,      # Use this to insert into the initialPrice column
+            "highPrice": lprice,         # Use this to insert into the highPrice column
+            "lastPrice": lprice,         # Use this to insert into the lastPrice column
             "margin3": marg,
             "margin5": marg1,
             "margin10": marg2,
             "margin20": marg3,
-            "purchasePrice": ""
+            "purchasePrice": ""          # No purchase price yet
         })
         logging.info('Completed processing data for %s', obj['symbol'])
 
@@ -90,15 +93,14 @@ def insert_data_db(resp):
             connection.autocommit = True
 
             with connection.cursor() as cursor:
-                # Get column names from the first element of `resp`
-                columns = ','.join(resp[0].keys())
-                # Prepare query string with placeholders for values
-                placeholders = ','.join(['%s'] * len(resp[0]))
-                query = f"INSERT INTO trading ({columns}) VALUES ({placeholders})"
+                # Define the columns in the trading table where data will be inserted
+                columns = ['symbol', 'initialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 'purchasePrice']
+                placeholders = ','.join(['%s'] * len(columns))
+                query = f"INSERT INTO trading ({','.join(columns)}) VALUES ({placeholders})"
 
                 # Prepare the data tuples for insertion
                 values = [
-                    [value.strip() if isinstance(value, str) else value for value in obj.values()]
+                    [obj['symbol'], obj['initialPrice'], obj['highPrice'], obj['lastPrice'], obj['margin3'], obj['margin5'], obj['margin10'], obj['margin20'], obj['purchasePrice']]
                     for obj in resp
                 ]
                 tuples = [tuple(x) for x in values]
@@ -112,11 +114,11 @@ def insert_data_db(resp):
 
 def main():
     while True:
-        table_Delete_crypto()
-        table_Create_crypto()
-        data = getall_data()
-        insert_data_db(data)
-        time.sleep(86400)
+        table_Delete_crypto()  # Delete old data
+        table_Create_crypto()  # Create table if not exists
+        data = getall_data()  # Fetch data from Binance API
+        insert_data_db(data)  # Insert the data into PostgreSQL
+        time.sleep(86400)  # Sleep for 24 hours
 
 if __name__ == "__main__":
     main()
