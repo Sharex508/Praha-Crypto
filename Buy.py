@@ -9,7 +9,7 @@ from psycopg2.extras import execute_values
 from notifications import notisend
 from concurrent.futures import ThreadPoolExecutor
 #client = Client()
-import pandas as pd
+#import pandas as pd
 import ccxt
 from assetbuy import buy_asset_with_usd
 
