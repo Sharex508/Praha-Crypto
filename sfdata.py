@@ -1,4 +1,3 @@
-import time
 import logging
 import psycopg2
 from psycopg2.extras import execute_batch
@@ -6,8 +5,32 @@ from simple_salesforce import Salesforce
 
 logging.basicConfig(level=logging.INFO)
 
+# Salesforce connection details
+def fetch_coinnumber_data_from_salesforce():
+    # Replace with your Salesforce credentials
+    sf = Salesforce(username='your_username', password='your_password', security_token='your_security_token')
+    query = "SELECT Id, margin_3__c, margin_5__c, margin_10__c, margin_20__c, Amount__c FROM Account"
+    
+    # Run the query
+    records = sf.query_all(query)
+    
+    # Transform Salesforce records into the required format
+    coinnumber_data = []
+    for record in records['records']:
+        coinnumber_data.append((
+            record['Id'],  # Salesforce ID mapped to sfid
+            record.get('margin_3__c', '0'),
+            record.get('margin_5__c', '0'),
+            record.get('margin_10__c', '0'),
+            record.get('margin_20__c', '0'),
+            record.get('Amount__c', '5')  # Default to 5 if no value provided
+        ))
+    
+    logging.info("Fetched Coinnumber data from Salesforce.")
+    return coinnumber_data
+
+# PostgreSQL connection details
 def get_database_connection():
-    """Create and return a PostgreSQL database connection."""
     return psycopg2.connect(
         user="postgres",
         password="Harsha508",
@@ -16,8 +39,8 @@ def get_database_connection():
         database="HarshaCry",
     )
 
+# Create Coinnumber table
 def create_coinnumber_table():
-    """Create the Coinnumber table if it doesn't exist."""
     connection = get_database_connection()
     try:
         with connection:
@@ -35,31 +58,12 @@ def create_coinnumber_table():
                 cursor.execute(create_table_query)
                 logging.info("Table 'Coinnumber' created successfully.")
     except Exception as error:
-        logging.error(f"Error creating 'Coinnumber' table: {error}")
+        logging.error(f"Error creating Coinnumber table: {error}")
     finally:
         connection.close()
 
-def fetch_coinnumber_data_from_salesforce():
-    """Fetch margin and amount data from Salesforce Account records."""
-    sf = Salesforce(username='your_username', password='your_password', security_token='your_security_token')
-    query = "SELECT Id, margin_3__c, margin_5__c, margin_10__c, margin_20__c, Amount__c FROM Account"
-    records = sf.query_all(query)
-
-    coinnumber_data = []
-    for record in records['records']:
-        coinnumber_data.append((
-            record['Id'],                           # Mapped to 'sfid'
-            record.get('margin_3__c', '0'),         # Mapped to 'margin3count'
-            record.get('margin_5__c', '0'),         # Mapped to 'margin5count'
-            record.get('margin_10__c', '0'),        # Mapped to 'margin10count'
-            record.get('margin_20__c', '0'),        # Mapped to 'margin20count'
-            record.get('Amount__c', '5')            # Mapped to 'amount', default to 5
-        ))
-    logging.info("Fetched Coinnumber data from Salesforce.")
-    return coinnumber_data
-
+# Insert data into Coinnumber table
 def insert_coinnumber_data(data):
-    """Insert fetched Salesforce data into the Coinnumber table."""
     connection = get_database_connection()
     try:
         with connection:
@@ -72,14 +76,19 @@ def insert_coinnumber_data(data):
                 execute_batch(cursor, insert_query, data)
                 logging.info("Data inserted successfully into 'Coinnumber' table.")
     except Exception as error:
-        logging.error(f"Error inserting data into 'Coinnumber' table: {error}")
+        logging.error(f"Error inserting data into Coinnumber table: {error}")
     finally:
         connection.close()
 
 def main():
-    create_coinnumber_table()  # Create Coinnumber table if it doesn't exist
-    coinnumber_data = fetch_coinnumber_data_from_salesforce()  # Fetch data from Salesforce
-    insert_coinnumber_data(coinnumber_data)  # Insert the data into PostgreSQL
+    # Step 1: Create the Coinnumber table
+    create_coinnumber_table()
+
+    # Step 2: Fetch data from Salesforce
+    coinnumber_data = fetch_coinnumber_data_from_salesforce()
+
+    # Step 3: Insert the fetched data into the Coinnumber table
+    insert_coinnumber_data(coinnumber_data)
 
 if __name__ == "__main__":
     main()
