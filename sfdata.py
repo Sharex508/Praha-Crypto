@@ -90,7 +90,5 @@ def main():
     # Step 3: Insert the fetched data into the Coinnumber table
     insert_coinnumber_data(coinnumber_data)
 
-    print(Harsha won)
-
 if __name__ == "__main__":
     main()
