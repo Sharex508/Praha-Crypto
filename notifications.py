@@ -2,14 +2,14 @@ import requests
 import json
 
 def notisend(msg):
-    token = '6883463112:AAGq2x_Cv7v_nLPXE09tJmAStdu3xBWMI-s'
+    token = '8083884010:AAHMV9bieVlpy0y5kEZR7ICQa3ieEsrRRmc'
     userID = 1893850031  # Replace with your user ID
 
     # Create URL for sending messages
     url = f'https://api.telegram.org/bot{token}/sendMessage'
 
     # Create data payload as a dictionary
-    data = {'chat_id': userID, 'text': 'you are a fucker'}
+    data = {'chat_id': userID, 'text': msg}
 
     # Send POST request to the Telegram API with JSON data
     response = requests.post(url, json=data)
