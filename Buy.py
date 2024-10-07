@@ -50,10 +50,10 @@ def get_coin_limits():
         cursor.execute(sql)
         limits = cursor.fetchone()
         return {
-            "margin3count": int(limits[0]),
-            "margin5count": int(limits[1]),
-            "margin10count": int(limits[2]),
-            "margin20count": int(limits[3]),
+            "margin3count": int(float(limits[0])),
+            "margin5count": int(float(limits[1])),
+            "margin10count": int(float(limits[2])),
+            "margin20count": int(float(limits[3])),
             "amount": float(limits[4])
         }
     except Exception as e:
