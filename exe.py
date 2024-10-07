@@ -5,28 +5,29 @@ import time
 def main():
     while True:
         try:
-            # Log start time for tracking
-            start_time = time.time()
+            start_time = time.time()  # Track the start time for each iteration
             print(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-            # Step 1: Fetch the latest price data from Binance API
-            api_resp = get_data_from_wazirx()
+            # Step 1: Fetch the latest price data
+            api_resp = get_data_from_wazirx()  # Fetch current prices from Binance API
+            
+            # Step 2: Handle purchasing logic (buy.py)
+            get_diff_of_db_api_values(api_resp)  # Perform price comparisons, decide on purchases
+            
+            # Step 3: Update last prices in the database (buy.py)
+            update_last_prices(api_resp)  # Update the DB with the latest prices
+            
+            # Step 4: Trigger notifications for price increases or decreases (coin_notification.py)
+            notify_price_increase(api_resp)  # Notify if there are significant price changes
 
-            # Step 2: Execute purchasing logic from Buy.py
-            get_diff_of_db_api_values(api_resp)  # Compare prices, handle purchases
-
-            # Step 3: Update last prices in the database from Buy.py
-            update_last_prices(api_resp)  # Update prices in the database
-
-            # Step 4: Execute notification logic from coinNotification.py
-            notify_price_increase(api_resp)  # Send notifications for significant price changes
-
-            # Log end time for tracking and print elapsed time
+            # Measure and print iteration time
             end_time = time.time()
-            print(f"Iteration completed in {end_time - start_time:.2f} seconds")
+            iteration_duration = end_time - start_time
+            print(f"Iteration completed in {iteration_duration:.2f} seconds")
 
-            # Wait for 10 seconds before the next iteration
-            time.sleep(10)
+            # Step 5: Wait for 10 seconds before the next execution cycle
+            time.sleep(10)  # Control the loop to run every 10 seconds
+
         except Exception as e:
             print(f"An error occurred: {e}")
             time.sleep(10)

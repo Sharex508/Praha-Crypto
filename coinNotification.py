@@ -66,9 +66,8 @@ def update_notified_percentage(symbol, percentage):
         cursor.close()
         connection.close()
 
-def notify_price_increase():
+def notify_price_increase(api_resp):
     db_resp = get_active_trades()
-    api_resp = get_data_from_wazirx()
 
     for trade in db_resp:
         symbol = trade['symbol']
@@ -97,4 +96,5 @@ def notify_price_increase():
                 update_notified_percentage(symbol, percentage_increase)
 
 if __name__ == "__main__":
-    notify_price_increase()
+    api_resp = get_data_from_wazirx()
+    notify_price_increase(api_resp)
