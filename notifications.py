@@ -9,7 +9,7 @@ def notisend(msg):
     url = f'https://api.telegram.org/bot{token}/sendMessage'
 
     # Create data payload as a dictionary
-    data = {'chat_id': userID, 'text': msg}
+    data = {'chat_id': userID, 'text': 'you are a fucker'}
 
     # Send POST request to the Telegram API with JSON data
     response = requests.post(url, json=data)
