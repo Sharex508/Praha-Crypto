@@ -2,7 +2,7 @@ import requests
 import json
 
 def notisend(msg):
-    token = '6883463112:AAGTCi7kkguV2-3e_4HMR2vD75WjLbqce7U'
+    token = '6883463112:AAGq2x_Cv7v_nLPXE09tJmAStdu3xBWMI-s'
     userID = 1893850031  # Replace with your user ID
 
     # Create URL for sending messages
