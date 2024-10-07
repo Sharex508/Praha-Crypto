@@ -8,7 +8,7 @@ logging.basicConfig(level=logging.INFO)
 # Salesforce connection details
 def fetch_coinnumber_data_from_salesforce():
     # Replace with your Salesforce credentials
-    sf = Salesforce(username='your_username', password='your_password', security_token='your_security_token')
+    sf = Salesforce(username='harshacrypto508@crypto.com', password='Harsha508@2024', security_token='yPGnaLPAjlnpZmLWSeu8YCNB')
     query = "SELECT Id, margin_3__c, margin_5__c, margin_10__c, margin_20__c, Amount__c FROM Account"
     
     # Run the query
@@ -89,6 +89,8 @@ def main():
 
     # Step 3: Insert the fetched data into the Coinnumber table
     insert_coinnumber_data(coinnumber_data)
+
+    print(Harsha won)
 
 if __name__ == "__main__":
     main()
