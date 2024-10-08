@@ -2,7 +2,6 @@ import time
 import psycopg2
 import requests
 from concurrent.futures import ThreadPoolExecutor
-from notifications import notisend  # Import your existing notification module
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -37,7 +36,7 @@ def get_results():
         data = [dict(zip(keys, obj)) for obj in results]
         return data
     except Exception as e:
-        logging.error(f"Error fetching results: {e}")
+        print(f"Error fetching results: {e}")
     finally:
         cursor.close()
         connection.close()
@@ -56,10 +55,10 @@ def get_coin_limits():
             "margin20count": int(float(limits[3])),
             "amount": float(limits[4])
         }
-        notisend(f"DEBUG - Coin Limits: {coin_limits}")
+        print(f"DEBUG - Coin Limits: {coin_limits}")
         return coin_limits
     except Exception as e:
-        logging.error(f"Error fetching coin limits: {e}")
+        print(f"Error fetching coin limits: {e}")
         return None
     finally:
         cursor.close()
@@ -80,7 +79,7 @@ def task(db_resp, api_resp, data):
     """Perform comparison task for each chunk of symbols."""
     coin_limits = get_coin_limits()
     if not coin_limits:
-        notisend("Error: Coin limits not found.")
+        print("Error: Coin limits not found.")
         return
 
     for ele in data:
@@ -94,7 +93,7 @@ def task(db_resp, api_resp, data):
         api_last_price = float(api_match_data['lastPrice'])
         db_margin, margin_level = calculate_margin_level(db_match_data, coin_limits)
 
-        notisend(
+        print(
             f"DEBUG - Processing Symbol: {ele}\n"
             f"Current API Last Price: {api_last_price}\n"
             f"Database Margins - 3%: {db_match_data['margin3']}, 5%: {db_match_data['margin5']}, "
@@ -105,7 +104,7 @@ def task(db_resp, api_resp, data):
         if db_margin and api_last_price >= db_margin:
             amount = coin_limits['amount']
             base_asset_symbol = ele.replace('USDT', '')
-            notisend(
+            print(
                 f"Action: Buying {base_asset_symbol}\n"
                 f"Level: {margin_level}\n"
                 f"Required Margin: {db_margin}\n"
@@ -113,7 +112,7 @@ def task(db_resp, api_resp, data):
             )
             update_margin_status(db_match_data['symbol'], margin_level)
         else:
-            notisend(
+            print(
                 f"No action for {ele}.\n"
                 f"Current Price: {api_last_price}\n"
                 f"Margin Level: {db_margin or 'N/A'}"
@@ -127,7 +126,7 @@ def calculate_margin_level(db_match_data, coin_limits):
     mar10_purchased = sum(1 for coin in db_match_data if coin['mar10'] == True)
     mar20_purchased = sum(1 for coin in db_match_data if coin['mar20'] == True)
 
-    notisend(
+    print(
         f"DEBUG - Purchased Counts:\n"
         f"mar3_purchased: {mar3_purchased}, mar5_purchased: {mar5_purchased}, "
         f"mar10_purchased: {mar10_purchased}, mar20_purchased: {mar20_purchased}\n"
@@ -163,9 +162,9 @@ def update_margin_status(symbol, margin_level):
         
         cursor.execute(sql_update_coinnumber)
         connection.commit()
-        notisend(f"{symbol} purchased at {margin_level}. Remaining count updated.")
+        print(f"{symbol} purchased at {margin_level}. Remaining count updated.")
     except Exception as e:
-        notisend(f"Error updating margin status for {symbol}: {e}")
+        print(f"Error updating margin status for {symbol}: {e}")
     finally:
         cursor.close()
         connection.close()
@@ -192,9 +191,9 @@ def update_coin_last_price_batch(updates):
         sql = "UPDATE trading SET lastPrice = %s WHERE symbol = %s"
         cursor.executemany(sql, updates)
         connection.commit()
-        notisend(f"Updated last prices for {len(updates)} symbols")
+        print(f"Updated last prices for {len(updates)} symbols")
     except Exception as e:
-        notisend(f"Error updating last prices: {e}")
+        print(f"Error updating last prices: {e}")
     finally:
         cursor.close()
         connection.close()
@@ -211,7 +210,7 @@ def get_active_trades():
         data = [dict(zip(keys, obj)) for obj in results]
         return data
     except Exception as e:
-        notisend(f"Error fetching active trades: {e}")
+        print(f"Error fetching active trades: {e}")
     finally:
         cursor.close()
         connection.close()
@@ -220,16 +219,16 @@ def show():
     start_time = time.time()
     while True:
         try:
-            notisend(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
             api_resp = get_data_from_wazirx()
             get_diff_of_db_api_values(api_resp)
             update_last_prices(api_resp)
             
             end_time = time.time()
-            notisend(f"Iteration completed in {end_time - start_time:.2f} seconds")
+            print(f"Iteration completed in {end_time - start_time:.2f} seconds")
             time.sleep(5)
         except Exception as e:
-            notisend(f"An error occurred: {e}")
+            print(f"An error occurred: {e}")
             time.sleep(5)
 
 if __name__ == "__main__":
