@@ -15,12 +15,10 @@ def get_db_connection():
     return connection, connection.cursor()
 
 def get_data_from_wazirx(filter='USDT'):
-    """Fetch the current price data from the Binance API."""
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
     return [d for d in data if filter in d['symbol'] and 'price' in d]
 
 def get_results():
-    """Retrieve trading data from the database."""
     connection, cursor = get_db_connection()
     try:
         sql = """
@@ -34,6 +32,7 @@ def get_results():
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
                 'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20')
         data = [dict(zip(keys, obj)) for obj in results]
+        print(f"DEBUG - Fetched {len(data)} trading records.")
         return data
     except Exception as e:
         print(f"Error fetching results: {e}")
@@ -42,7 +41,6 @@ def get_results():
         connection.close()
 
 def get_coin_limits():
-    """Retrieve margin count limits and amount for purchases from the Coinnumber table."""
     connection, cursor = get_db_connection()
     try:
         sql = "SELECT margin3count, Margin5count, Margin10count, Margin20count, amount FROM Coinnumber"
@@ -65,9 +63,9 @@ def get_coin_limits():
         connection.close()
 
 def get_diff_of_db_api_values(api_resp):
-    """Compare database values with the Binance API data."""
     db_resp = get_results()
     dicts_data = [obj['symbol'] for obj in db_resp]
+    print(f"DEBUG - Symbols to process: {dicts_data}")
     chunk_size = min(20, len(dicts_data))
     chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
     
@@ -76,7 +74,6 @@ def get_diff_of_db_api_values(api_resp):
             executor.submit(task, db_resp, api_resp, chunk)
 
 def task(db_resp, api_resp, data):
-    """Perform comparison task for each chunk of symbols."""
     coin_limits = get_coin_limits()
     if not coin_limits:
         print("Error: Coin limits not found.")
@@ -85,9 +82,11 @@ def task(db_resp, api_resp, data):
     for ele in data:
         db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
         if not db_match_data:
+            print(f"DEBUG - Symbol {ele} not found in DB data.")
             continue
         api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
         if not api_match_data:
+            print(f"DEBUG - Symbol {ele} not found in API data.")
             continue
 
         api_last_price = float(api_match_data['lastPrice'])
@@ -95,8 +94,8 @@ def task(db_resp, api_resp, data):
 
         print(
             f"DEBUG - Processing Symbol: {ele}\n"
-            f"Current API Last Price: {api_last_price}\n"
-            f"Database Margins - 3%: {db_match_data['margin3']}, 5%: {db_match_data['margin5']}, "
+            f"API Last Price: {api_last_price}\n"
+            f"DB Margins - 3%: {db_match_data['margin3']}, 5%: {db_match_data['margin5']}, "
             f"10%: {db_match_data['margin10']}, 20%: {db_match_data['margin20']}\n"
             f"Selected Margin Level: {margin_level} with Required Price: {db_margin}"
         )
@@ -119,8 +118,6 @@ def task(db_resp, api_resp, data):
             )
 
 def calculate_margin_level(db_match_data, coin_limits):
-    """Determine which margin level to apply based on purchase limits."""
-    
     mar3_purchased = sum(1 for coin in db_match_data if coin['mar3'] == True)
     mar5_purchased = sum(1 for coin in db_match_data if coin['mar5'] == True)
     mar10_purchased = sum(1 for coin in db_match_data if coin['mar10'] == True)
@@ -145,7 +142,6 @@ def calculate_margin_level(db_match_data, coin_limits):
     return None, None
 
 def update_margin_status(symbol, margin_level):
-    """Update the margin status in the database and decrement the count in Coinnumber."""
     connection, cursor = get_db_connection()
     try:
         sql_update_trading = f"UPDATE trading SET {margin_level} = TRUE, status = '1' WHERE symbol = %s"
@@ -170,7 +166,6 @@ def update_margin_status(symbol, margin_level):
         connection.close()
 
 def update_last_prices(api_resp):
-    """Update last prices in the database."""
     db_resp = get_active_trades()
     updates = []
     for trade in db_resp:
@@ -183,7 +178,6 @@ def update_last_prices(api_resp):
     update_coin_last_price_batch(updates)
 
 def update_coin_last_price_batch(updates):
-    """Batch update last prices in the trading table."""
     if not updates:
         return
     connection, cursor = get_db_connection()
@@ -199,7 +193,6 @@ def update_coin_last_price_batch(updates):
         connection.close()
 
 def get_active_trades():
-    """Retrieve active trades from the database."""
     connection, cursor = get_db_connection()
     try:
         sql = "SELECT * FROM trading WHERE status = '1'"
