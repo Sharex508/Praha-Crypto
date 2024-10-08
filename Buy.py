@@ -155,7 +155,7 @@ def show():
         api_resp = get_data_from_wazirx()
         db_resp = get_results()
         task(db_resp, api_resp)  # Direct call to task without threading
-        time.sleep(5)
+        time.sleep(500)
 
 if __name__ == "__main__":
     show()
