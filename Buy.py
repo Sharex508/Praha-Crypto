@@ -64,25 +64,26 @@ def get_coin_limits():
         connection.close()
 
 def calculate_margin_level(db_match_data, coin_limits):
-    mar3_purchased = sum(1 for coin in db_match_data if coin['mar3'] == True)
-    mar5_purchased = sum(1 for coin in db_match_data if coin['mar5'] == True)
-    mar10_purchased = sum(1 for coin in db_match_data if coin['mar10'] == True)
-    mar20_purchased = sum(1 for coin in db_match_data if coin['mar20'] == True)
+    # Directly access the `marX` fields since `db_match_data` is a single dictionary
+    mar3_purchased = db_match_data['mar3']
+    mar5_purchased = db_match_data['mar5']
+    mar10_purchased = db_match_data['mar10']
+    mar20_purchased = db_match_data['mar20']
 
     logging.debug(
-        f"DEBUG - Purchased Counts:\n"
-        f"mar3_purchased: {mar3_purchased}, mar5_purchased: {mar5_purchased}, "
-        f"mar10_purchased: {mar10_purchased}, mar20_purchased: {mar20_purchased}\n"
+        f"DEBUG - Purchased Flags:\n"
+        f"mar3: {mar3_purchased}, mar5: {mar5_purchased}, "
+        f"mar10: {mar10_purchased}, mar20: {mar20_purchased}\n"
         f"Coin Limits: {coin_limits}"
     )
 
-    if mar20_purchased < coin_limits['margin20count'] and not db_match_data['mar20']:
+    if not mar20_purchased and coin_limits['margin20count'] > 0:
         return float(db_match_data['margin20']), 'mar20'
-    elif mar10_purchased < coin_limits['margin10count'] and not db_match_data['mar10']:
+    elif not mar10_purchased and coin_limits['margin10count'] > 0:
         return float(db_match_data['margin10']), 'mar10'
-    elif mar5_purchased < coin_limits['margin5count'] and not db_match_data['mar5']:
+    elif not mar5_purchased and coin_limits['margin5count'] > 0:
         return float(db_match_data['margin5']), 'mar5'
-    elif mar3_purchased < coin_limits['margin3count'] and not db_match_data['mar3']:
+    elif not mar3_purchased and coin_limits['margin3count'] > 0:
         return float(db_match_data['margin3']), 'mar3'
     
     return None, None
@@ -93,9 +94,8 @@ def task(db_resp, api_resp):
         logging.error("Error: Coin limits not found.")
         return
 
-    for ele in db_resp:
-        symbol = ele["symbol"]
-        db_match_data = ele
+    for db_match_data in db_resp:
+        symbol = db_match_data["symbol"]
         api_match_data = next((item for item in api_resp if item["symbol"] == symbol), None)
         
         if not api_match_data:
