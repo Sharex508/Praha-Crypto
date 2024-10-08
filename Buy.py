@@ -90,15 +90,10 @@ def task(db_resp, api_resp, data):
             continue
 
         api_last_price = float(api_match_data['lastPrice'])
+        print(f"DEBUG - Processing {ele} with API last price: {api_last_price}")
+        
         db_margin, margin_level = calculate_margin_level(db_match_data, coin_limits)
-
-        print(
-            f"DEBUG - Processing Symbol: {ele}\n"
-            f"API Last Price: {api_last_price}\n"
-            f"DB Margins - 3%: {db_match_data['margin3']}, 5%: {db_match_data['margin5']}, "
-            f"10%: {db_match_data['margin10']}, 20%: {db_match_data['margin20']}\n"
-            f"Selected Margin Level: {margin_level} with Required Price: {db_margin}"
-        )
+        print(f"DEBUG - Margin Check for {ele}: Level - {margin_level}, Required Price - {db_margin}")
 
         if db_margin and api_last_price >= db_margin:
             amount = coin_limits['amount']
@@ -140,6 +135,9 @@ def calculate_margin_level(db_match_data, coin_limits):
         return float(db_match_data['margin3']), 'mar3'
     
     return None, None
+
+# Remaining functions unchanged
+
 
 def update_margin_status(symbol, margin_level):
     connection, cursor = get_db_connection()
