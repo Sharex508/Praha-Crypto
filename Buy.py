@@ -49,13 +49,15 @@ def get_coin_limits():
         sql = "SELECT margin3count, Margin5count, Margin10count, Margin20count, amount FROM Coinnumber"
         cursor.execute(sql)
         limits = cursor.fetchone()
-        return {
+        coin_limits = {
             "margin3count": int(float(limits[0])),
             "margin5count": int(float(limits[1])),
             "margin10count": int(float(limits[2])),
             "margin20count": int(float(limits[3])),
             "amount": float(limits[4])
         }
+        notisend(f"DEBUG - Coin Limits: {coin_limits}")
+        return coin_limits
     except Exception as e:
         logging.error(f"Error fetching coin limits: {e}")
         return None
@@ -88,10 +90,18 @@ def task(db_resp, api_resp, data):
         api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
         if not api_match_data:
             continue
-        
+
         api_last_price = float(api_match_data['lastPrice'])
         db_margin, margin_level = calculate_margin_level(db_match_data, coin_limits)
-        
+
+        notisend(
+            f"DEBUG - Processing Symbol: {ele}\n"
+            f"Current API Last Price: {api_last_price}\n"
+            f"Database Margins - 3%: {db_match_data['margin3']}, 5%: {db_match_data['margin5']}, "
+            f"10%: {db_match_data['margin10']}, 20%: {db_match_data['margin20']}\n"
+            f"Selected Margin Level: {margin_level} with Required Price: {db_margin}"
+        )
+
         if db_margin and api_last_price >= db_margin:
             amount = coin_limits['amount']
             base_asset_symbol = ele.replace('USDT', '')
@@ -117,14 +127,21 @@ def calculate_margin_level(db_match_data, coin_limits):
     mar10_purchased = sum(1 for coin in db_match_data if coin['mar10'] == True)
     mar20_purchased = sum(1 for coin in db_match_data if coin['mar20'] == True)
 
-    if mar3_purchased < coin_limits['margin3count'] and not db_match_data['mar3']:
-        return float(db_match_data['margin3']), 'mar3'
-    elif mar5_purchased < coin_limits['margin5count'] and not db_match_data['mar5']:
-        return float(db_match_data['margin5']), 'mar5'
+    notisend(
+        f"DEBUG - Purchased Counts:\n"
+        f"mar3_purchased: {mar3_purchased}, mar5_purchased: {mar5_purchased}, "
+        f"mar10_purchased: {mar10_purchased}, mar20_purchased: {mar20_purchased}\n"
+        f"Coin Limits: {coin_limits}"
+    )
+
+    if mar20_purchased < coin_limits['margin20count'] and not db_match_data['mar20']:
+        return float(db_match_data['margin20']), 'mar20'
     elif mar10_purchased < coin_limits['margin10count'] and not db_match_data['mar10']:
         return float(db_match_data['margin10']), 'mar10'
-    elif mar20_purchased < coin_limits['margin20count'] and not db_match_data['mar20']:
-        return float(db_match_data['margin20']), 'mar20'
+    elif mar5_purchased < coin_limits['margin5count'] and not db_match_data['mar5']:
+        return float(db_match_data['margin5']), 'mar5'
+    elif mar3_purchased < coin_limits['margin3count'] and not db_match_data['mar3']:
+        return float(db_match_data['margin3']), 'mar3'
     
     return None, None
 
