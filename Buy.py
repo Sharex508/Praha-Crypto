@@ -1,6 +1,7 @@
 import time
 import psycopg2
 import requests
+from concurrent.futures import ThreadPoolExecutor
 import logging
 
 logging.basicConfig(level=logging.DEBUG)
@@ -13,42 +14,35 @@ def get_db_connection():
                                   database="HarshaCry")
     return connection, connection.cursor()
 
-def get_data_for_santos():
-    """Fetch the SANTOSUSDT data from the Binance API."""
+def get_data_from_wazirx(filter='USDT'):
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
-    santos_data = next((d for d in data if d['symbol'] == 'SANTOSUSDT'), None)
-    if santos_data:
-        logging.debug(f"DEBUG - Fetched SANTOSUSDT from API with price: {santos_data['price']}")
-    else:
-        logging.debug("DEBUG - SANTOSUSDT not found in API data.")
-    return [santos_data] if santos_data else []
+    resp = [d for d in data if filter in d['symbol'] and 'price' in d]
+    logging.debug(f"DEBUG - Fetched {len(resp)} symbols from API with filter '{filter}'.")
+    return resp
 
-def get_santos_result():
-    """Retrieve the SANTOSUSDT trading data from the database."""
+def get_results():
     connection, cursor = get_db_connection()
     try:
         sql = """
         SELECT symbol, intialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
                mar3, mar5, mar10, mar20
         FROM trading
-        WHERE symbol = 'SANTOSUSDT'
         """
         cursor.execute(sql)
-        result = cursor.fetchone()
+        results = cursor.fetchall()
 
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
                 'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20')
-        santos_data = dict(zip(keys, result)) if result else None
-        logging.debug(f"DEBUG - Fetched SANTOSUSDT record from database: {santos_data}")
-        return [santos_data] if santos_data else []
+        data = [dict(zip(keys, obj)) for obj in results]
+        logging.debug(f"DEBUG - Fetched {len(data)} trading records from the database.")
+        return data
     except Exception as e:
-        logging.error(f"Error fetching SANTOSUSDT: {e}")
+        logging.error(f"Error fetching results: {e}")
     finally:
         cursor.close()
         connection.close()
 
 def get_coin_limits():
-    """Retrieve margin count limits and amount for purchases from the Coinnumber table."""
     connection, cursor = get_db_connection()
     try:
         sql = "SELECT margin3count, Margin5count, Margin10count, Margin20count, amount FROM Coinnumber"
@@ -70,76 +64,162 @@ def get_coin_limits():
         cursor.close()
         connection.close()
 
-def calculate_margin_level(db_match_data, coin_limits):
-    mar3_purchased = db_match_data['mar3']
-    mar5_purchased = db_match_data['mar5']
-    mar10_purchased = db_match_data['mar10']
-    mar20_purchased = db_match_data['mar20']
-
-    logging.debug(
-        f"DEBUG - Purchased Flags for SANTOSUSDT:\n"
-        f"mar3: {mar3_purchased}, mar5: {mar5_purchased}, "
-        f"mar10: {mar10_purchased}, mar20: {mar20_purchased}\n"
-        f"Coin Limits: {coin_limits}"
-    )
-
-    if not mar20_purchased and coin_limits['margin20count'] > 0:
-        return float(db_match_data['margin20']), 'mar20'
-    elif not mar10_purchased and coin_limits['margin10count'] > 0:
-        return float(db_match_data['margin10']), 'mar10'
-    elif not mar5_purchased and coin_limits['margin5count'] > 0:
-        return float(db_match_data['margin5']), 'mar5'
-    elif not mar3_purchased and coin_limits['margin3count'] > 0:
-        return float(db_match_data['margin3']), 'mar3'
+def get_diff_of_db_api_values(api_resp):
+    db_resp = get_results()
+    dicts_data = [obj['symbol'] for obj in db_resp]
+    logging.debug(f"DEBUG - Symbols to process: {dicts_data}")
+    chunk_size = min(20, len(dicts_data))
+    chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
     
-    return None, None
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        for chunk in chunks:
+            executor.submit(task, db_resp, api_resp, chunk)
 
-def task_santos(db_resp, api_resp):
-    """Process only the SANTOSUSDT symbol."""
+def task(db_resp, api_resp, data):
     coin_limits = get_coin_limits()
     if not coin_limits:
         logging.error("Error: Coin limits not found.")
         return
 
-    db_match_data = db_resp[0] if db_resp else None
-    api_match_data = api_resp[0] if api_resp else None
-    
-    if not db_match_data:
-        logging.debug("DEBUG - No database record for SANTOSUSDT.")
-        return
-    
-    if not api_match_data:
-        logging.debug("DEBUG - No API data for SANTOSUSDT.")
-        return
-    
-    api_last_price = float(api_match_data['price'])
-    logging.debug(f"DEBUG - Processing SANTOSUSDT with API last price: {api_last_price}")
-    
-    db_margin, margin_level = calculate_margin_level(db_match_data, coin_limits)
-    logging.debug(f"DEBUG - Margin Check for SANTOSUSDT: Level - {margin_level}, Required Price - {db_margin}")
+    for ele in data:
+        db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
+        if not db_match_data:
+            logging.debug(f"DEBUG - Symbol {ele} not found in DB data.")
+            continue
+        api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
+        if not api_match_data:
+            logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
+            continue
 
-    if db_margin and api_last_price >= db_margin:
-        amount = coin_limits['amount']
-        logging.debug(
-            f"Action: Buying SANTOSUSDT\n"
-            f"Level: {margin_level}\n"
-            f"Required Margin: {db_margin}\n"
-            f"Amount: {amount}"
-        )
-        # Call update_margin_status if required for actual database update
-    else:
-        logging.debug(
-            f"No action for SANTOSUSDT.\n"
-            f"Current Price: {api_last_price}\n"
-            f"Margin Level: {db_margin or 'N/A'}"
-        )
+        api_last_price = float(api_match_data['price'])
+        logging.debug(f"DEBUG - Processing {ele} with API last price: {api_last_price}")
+        
+        db_margin, margin_level = calculate_margin_level(db_match_data, coin_limits)
+        logging.debug(f"DEBUG - Margin Check for {ele}: Level - {margin_level}, Required Price - {db_margin}")
 
-def show_santos():
-    """Run a single iteration for SANTOSUSDT."""
-    logging.debug(f"Starting new iteration for SANTOSUSDT at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-    api_resp = get_data_for_santos()
-    db_resp = get_santos_result()
-    task_santos(db_resp, api_resp)
+        if db_margin and api_last_price >= db_margin:
+            amount = coin_limits['amount']
+            base_asset_symbol = ele.replace('USDT', '')
+            logging.info(
+                f"Action: Buying {base_asset_symbol}\n"
+                f"Level: {margin_level}\n"
+                f"Required Margin: {db_margin}\n"
+                f"Amount: {amount}"
+            )
+            update_margin_status(db_match_data['symbol'], margin_level)
+        else:
+            logging.debug(
+                f"No action for {ele}.\n"
+                f"Current Price: {api_last_price}\n"
+                f"Margin Level: {db_margin or 'N/A'}"
+            )
+
+def calculate_margin_level(db_match_data, coin_limits):
+    mar3_purchased = sum(1 for coin in db_match_data if coin['mar3'] == True)
+    mar5_purchased = sum(1 for coin in db_match_data if coin['mar5'] == True)
+    mar10_purchased = sum(1 for coin in db_match_data if coin['mar10'] == True)
+    mar20_purchased = sum(1 for coin in db_match_data if coin['mar20'] == True)
+
+    logging.debug(
+        f"DEBUG - Purchased Counts:\n"
+        f"mar3_purchased: {mar3_purchased}, mar5_purchased: {mar5_purchased}, "
+        f"mar10_purchased: {mar10_purchased}, mar20_purchased: {mar20_purchased}\n"
+        f"Coin Limits: {coin_limits}"
+    )
+
+    if mar20_purchased < coin_limits['margin20count'] and not db_match_data['mar20']:
+        return float(db_match_data['margin20']), 'mar20'
+    elif mar10_purchased < coin_limits['margin10count'] and not db_match_data['mar10']:
+        return float(db_match_data['margin10']), 'mar10'
+    elif mar5_purchased < coin_limits['margin5count'] and not db_match_data['mar5']:
+        return float(db_match_data['margin5']), 'mar5'
+    elif mar3_purchased < coin_limits['margin3count'] and not db_match_data['mar3']:
+        return float(db_match_data['margin3']), 'mar3'
+    
+    return None, None
+
+def update_margin_status(symbol, margin_level):
+    connection, cursor = get_db_connection()
+    try:
+        sql_update_trading = f"UPDATE trading SET {margin_level} = TRUE, status = '1' WHERE symbol = %s"
+        cursor.execute(sql_update_trading, (symbol,))
+        
+        if margin_level == 'mar3':
+            sql_update_coinnumber = "UPDATE Coinnumber SET margin3count = margin3count - 1"
+        elif margin_level == 'mar5':
+            sql_update_coinnumber = "UPDATE Coinnumber SET Margin5count = Margin5count - 1"
+        elif margin_level == 'mar10':
+            sql_update_coinnumber = "UPDATE Coinnumber SET Margin10count = Margin10count - 1"
+        elif margin_level == 'mar20':
+            sql_update_coinnumber = "UPDATE Coinnumber SET Margin20count = Margin20count - 1"
+        
+        cursor.execute(sql_update_coinnumber)
+        connection.commit()
+        logging.info(f"{symbol} purchased at {margin_level}. Remaining count updated.")
+    except Exception as e:
+        logging.error(f"Error updating margin status for {symbol}: {e}")
+    finally:
+        cursor.close()
+        connection.close()
+
+def update_last_prices(api_resp):
+    db_resp = get_active_trades()
+    updates = []
+    for trade in db_resp:
+        symbol = trade['symbol']
+        matching_api_data = next((item for item in api_resp if item["symbol"] == symbol), None)
+        if matching_api_data:
+            new_last_price = matching_api_data['price']
+            updates.append((new_last_price, symbol))
+    
+    update_coin_last_price_batch(updates)
+
+def update_coin_last_price_batch(updates):
+    if not updates:
+        return
+    connection, cursor = get_db_connection()
+    try:
+        sql = "UPDATE trading SET lastPrice = %s WHERE symbol = %s"
+        cursor.executemany(sql, updates)
+        connection.commit()
+        logging.info(f"Updated last prices for {len(updates)} symbols")
+    except Exception as e:
+        logging.error(f"Error updating last prices: {e}")
+    finally:
+        cursor.close()
+        connection.close()
+
+def get_active_trades():
+    connection, cursor = get_db_connection()
+    try:
+        sql = "SELECT * FROM trading WHERE status = '1'"
+        cursor.execute(sql)
+        results = cursor.fetchall()
+        keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 
+                'margin10', 'margin20', 'purchasePrice', 'quantity', 'created_at', 'status')
+        data = [dict(zip(keys, obj)) for obj in results]
+        return data
+    except Exception as e:
+        logging.error(f"Error fetching active trades: {e}")
+    finally:
+        cursor.close()
+        connection.close()
+
+def show():
+    start_time = time.time()
+    while True:
+        try:
+            logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            api_resp = get_data_from_wazirx()
+            get_diff_of_db_api_values(api_resp)
+            update_last_prices(api_resp)
+            
+            end_time = time.time()
+            logging.info(f"Iteration completed in {end_time - start_time:.2f} seconds")
+            time.sleep(5)
+        except Exception as e:
+            logging.error(f"An error occurred: {e}")
+            time.sleep(5)
 
 if __name__ == "__main__":
-    show_santos()
+    show()
