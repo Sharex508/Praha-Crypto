@@ -92,10 +92,11 @@ def task(db_resp, api_resp, data):
             continue
 
         api_last_price = float(api_match_data['price'])
-        logging.debug(f"DEBUG - Processing {ele} with API last price: {api_last_price}")
-        
-        db_margin, margin_level = calculate_margin_level(db_match_data, coin_limits)
-        logging.debug(f"DEBUG - Margin Check for {ele}: Level - {margin_level}, Required Price - {db_margin}")
+        db_price = float(db_match_data["intialPrice"])
+        logging.debug(f"\nProcessing {ele}\nLast Price: {api_last_price}\nDB Price: {db_price}\nCoin Limits: {coin_limits}")
+
+        db_margin, margin_level, matched_percentage = calculate_margin_level(db_match_data, coin_limits, api_last_price)
+        logging.debug(f"DEBUG - Margin Check for {ele}: Level - {margin_level}, Required Price - {db_margin}, Matched Percentage - {matched_percentage}%")
 
         if db_margin and api_last_price >= db_margin:
             amount = coin_limits['amount']
@@ -104,39 +105,30 @@ def task(db_resp, api_resp, data):
                 f"Action: Buying {base_asset_symbol}\n"
                 f"Level: {margin_level}\n"
                 f"Required Margin: {db_margin}\n"
-                f"Amount: {amount}"
+                f"Amount: {amount}\n"
+                f"Matched at Percentage: {matched_percentage}%"
             )
             update_margin_status(db_match_data['symbol'], margin_level)
         else:
             logging.debug(
                 f"No action for {ele}.\n"
                 f"Current Price: {api_last_price}\n"
-                f"Margin Level: {db_margin or 'N/A'}"
+                f"Margin Level: {margin_level or 'N/A'}"
             )
 
-def calculate_margin_level(db_match_data, coin_limits):
-    mar3_purchased = sum(1 for coin in db_match_data if coin['mar3'] == True)
-    mar5_purchased = sum(1 for coin in db_match_data if coin['mar5'] == True)
-    mar10_purchased = sum(1 for coin in db_match_data if coin['mar10'] == True)
-    mar20_purchased = sum(1 for coin in db_match_data if coin['mar20'] == True)
+def calculate_margin_level(db_match_data, coin_limits, last_price):
+    margin_levels = [
+        ("mar3", "margin3", coin_limits['margin3count'], 3),
+        ("mar5", "margin5", coin_limits['margin5count'], 5),
+        ("mar10", "margin10", coin_limits['margin10count'], 10),
+        ("mar20", "margin20", coin_limits['margin20count'], 20)
+    ]
 
-    logging.debug(
-        f"DEBUG - Purchased Counts:\n"
-        f"mar3_purchased: {mar3_purchased}, mar5_purchased: {mar5_purchased}, "
-        f"mar10_purchased: {mar10_purchased}, mar20_purchased: {mar20_purchased}\n"
-        f"Coin Limits: {coin_limits}"
-    )
-
-    if mar20_purchased < coin_limits['margin20count'] and not db_match_data['mar20']:
-        return float(db_match_data['margin20']), 'mar20'
-    elif mar10_purchased < coin_limits['margin10count'] and not db_match_data['mar10']:
-        return float(db_match_data['margin10']), 'mar10'
-    elif mar5_purchased < coin_limits['margin5count'] and not db_match_data['mar5']:
-        return float(db_match_data['margin5']), 'mar5'
-    elif mar3_purchased < coin_limits['margin3count'] and not db_match_data['mar3']:
-        return float(db_match_data['margin3']), 'mar3'
+    for level_flag, margin_field, limit, percentage in margin_levels:
+        if not db_match_data[level_flag] and float(db_match_data[margin_field]) <= last_price:
+            return float(db_match_data[margin_field]), level_flag, percentage
     
-    return None, None
+    return None, None, None
 
 def update_margin_status(symbol, margin_level):
     connection, cursor = get_db_connection()
