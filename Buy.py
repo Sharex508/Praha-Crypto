@@ -30,7 +30,6 @@ def get_results():
         """
         cursor.execute(sql)
         results = cursor.fetchall()
-
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
                 'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20', 'status')
         data = [dict(zip(keys, obj)) for obj in results]
@@ -38,6 +37,7 @@ def get_results():
         return data
     except Exception as e:
         logging.error(f"Error fetching results: {e}")
+        return []
     finally:
         cursor.close()
         connection.close()
@@ -49,10 +49,10 @@ def get_coin_limits():
         cursor.execute(sql)
         limits = cursor.fetchone()
         coin_limits = {
-            "margin3count": int(float(limits[0] or 0)),
-            "margin5count": int(float(limits[1] or 0)),
-            "margin10count": int(float(limits[2] or 0)),
-            "margin20count": int(float(limits[3] or 0)),
+            "margin3count": max(0, int(float(limits[0] or 0))),
+            "margin5count": max(0, int(float(limits[1] or 0))),
+            "margin10count": max(0, int(float(limits[2] or 0))),
+            "margin20count": max(0, int(float(limits[3] or 0))),
             "amount": float(limits[4] or 0.0)
         }
         logging.debug(f"Coin Limits: {coin_limits}")
@@ -107,7 +107,7 @@ def task(db_resp, api_resp, data):
                 f"Matched at Percentage: {matched_percentage}%"
             )
 
-            status_updated = update_margin_status(db_match_data['symbol'], margin_level)
+            status_updated = update_margin_status(db_match_data['symbol'], margin_level, coin_limits)
             if status_updated:
                 logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status updated.")
             else:
@@ -128,12 +128,12 @@ def calculate_margin_level(db_match_data, coin_limits, last_price):
     ]
 
     for level_flag, margin_field, limit, percentage in margin_levels:
-        if not db_match_data[level_flag] and float(db_match_data[margin_field] or 0.0) <= last_price:
+        if limit > 0 and not db_match_data[level_flag] and float(db_match_data[margin_field] or 0.0) <= last_price:
             return float(db_match_data[margin_field] or 0.0), level_flag, percentage
     
     return None, None, None
 
-def update_margin_status(symbol, margin_level):
+def update_margin_status(symbol, margin_level, coin_limits):
     connection, cursor = get_db_connection()
     status_updated = False
     try:
@@ -152,6 +152,7 @@ def update_margin_status(symbol, margin_level):
         status_updated = cursor.rowcount > 0
 
         if status_updated:
+            coin_limits[f"{margin_level[3:]}count"] -= 1
             logging.info(f"{symbol} purchased at {margin_level}. Remaining count updated.")
         else:
             logging.info(f"{symbol} was already processed at {margin_level} and not updated again.")
@@ -198,11 +199,12 @@ def get_active_trades():
         cursor.execute(sql)
         results = cursor.fetchall()
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 
-                'margin10', 'margin20', 'purchasePrice', 'quantity', 'created_at', 'status')
+                'margin10', 'margin20', 'purchasePrice', 'created_at', 'status')
         data = [dict(zip(keys, obj)) for obj in results]
         return data
     except Exception as e:
         logging.error(f"Error fetching active trades: {e}")
+        return []
     finally:
         cursor.close()
         connection.close()

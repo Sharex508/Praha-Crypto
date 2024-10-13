@@ -13,20 +13,22 @@ def get_db_connection():
 def get_active_trades():
     connection, cursor = get_db_connection()
     try:
+        # Ensure the correct columns are fetched, remove 'quantity' if not required
         sql = """
         SELECT symbol, intialPrice, highPrice, lastPrice, margin3, margin5, 
-               margin10, margin20, purchasePrice, quantity, created_at, status, 
+               margin10, margin20, purchasePrice, created_at, status, 
                COALESCE(last_notified_percentage, 0.0) as last_notified_percentage
         FROM trading WHERE status = '1'
         """
         cursor.execute(sql)
         results = cursor.fetchall()
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 
-                'margin10', 'margin20', 'purchasePrice', 'quantity', 'created_at', 'status', 'last_notified_percentage')
+                'margin10', 'margin20', 'purchasePrice', 'created_at', 'status', 'last_notified_percentage')
         data = [dict(zip(keys, obj)) for obj in results]
         return data
     except Exception as e:
         print(f"Error fetching active trades: {e}")
+        return []  # Return empty list if there's an error
     finally:
         cursor.close()
         connection.close()
@@ -73,6 +75,10 @@ def update_notified_percentage(symbol, percentage):
 
 def notify_price_increase(api_resp):
     db_resp = get_active_trades()
+
+    if not db_resp:
+        print("No active trades found or error in fetching trades.")
+        return
 
     for trade in db_resp:
         try:
