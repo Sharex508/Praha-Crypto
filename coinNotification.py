@@ -70,30 +70,40 @@ def notify_price_increase(api_resp):
     db_resp = get_active_trades()
 
     for trade in db_resp:
-        symbol = trade['symbol']
-        initial_price = float(trade['intialPrice'])
-        last_notified = float(trade['last_notified_percentage'])
-        high_price = float(trade['highPrice'])
+        try:
+            symbol = trade['symbol']
+            initial_price = float(trade['intialPrice'])
+            last_notified = float(trade.get('last_notified_percentage', 0.0) or 0.0)  # Default to 0.0 if None
+            high_price = float(trade['highPrice'])
 
-        matching_api_data = next((item for item in api_resp if item["symbol"] == symbol), None)
-        if matching_api_data:
-            current_price = float(matching_api_data['lastPrice'])
-            percentage_increase = ((current_price - initial_price) / initial_price) * 100
+            matching_api_data = next((item for item in api_resp if item["symbol"] == symbol), None)
+            if matching_api_data:
+                current_price = float(matching_api_data['price'])  # Note: using 'price' field from API
+                percentage_increase = ((current_price - initial_price) / initial_price) * 100
 
-            gain = current_price - initial_price
-            five_percent_decrease_from_gain = gain * 0.05
-            decrease_threshold = current_price - five_percent_decrease_from_gain
+                gain = current_price - initial_price
+                five_percent_decrease_from_gain = gain * 0.05
+                decrease_threshold = current_price - five_percent_decrease_from_gain
 
-            if current_price > high_price:
-                update_high_price(symbol, current_price)
+                # Update high price if current price exceeds it
+                if current_price > high_price:
+                    update_high_price(symbol, current_price)
 
-            if percentage_increase >= last_notified + 10:
-                send_notification(symbol, initial_price, current_price, "increase", percentage_increase)
-                update_notified_percentage(symbol, percentage_increase)
+                # Check for a 10% or more increase since the last notification
+                if percentage_increase >= last_notified + 10:
+                    send_notification(symbol, initial_price, current_price, "increase", percentage_increase)
+                    update_notified_percentage(symbol, percentage_increase)
 
-            if current_price <= decrease_threshold:
-                send_notification(symbol, initial_price, current_price, "decrease", five_percent_decrease_from_gain)
-                update_notified_percentage(symbol, percentage_increase)
+                # Check for a 5% decrease from the most recent gain
+                if current_price <= decrease_threshold:
+                    send_notification(symbol, initial_price, current_price, "decrease", five_percent_decrease_from_gain)
+                    update_notified_percentage(symbol, percentage_increase)
+
+        except TypeError as e:
+            print(f"TypeError encountered for {trade['symbol']}: {e}. Skipping.")
+        except Exception as e:
+            print(f"Error processing {trade['symbol']}: {e}")
+
 
 if __name__ == "__main__":
     api_resp = get_data_from_wazirx()
