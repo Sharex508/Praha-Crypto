@@ -137,7 +137,6 @@ def update_margin_status(symbol, margin_level):
     connection, cursor = get_db_connection()
     status_updated = False
     try:
-        # Update trading table to mark the coin as purchased at this margin level
         sql_update_trading = f"""
             UPDATE trading
             SET {margin_level} = TRUE, status = '1'
@@ -145,10 +144,7 @@ def update_margin_status(symbol, margin_level):
         """
         cursor.execute(sql_update_trading, (symbol,))
 
-        # Select the appropriate column for the Coinnumber table based on margin level
-        margin_column = f"Margin{margin_level[3:]}count"  # Converts 'mar3' to 'Margin3count', etc.
-        
-        # Update the Coinnumber count for the specific margin level
+        margin_column = f"Margin{margin_level[3:]}count"
         sql_update_coinnumber = f"UPDATE Coinnumber SET {margin_column} = {margin_column}::integer - 1"
         cursor.execute(sql_update_coinnumber)
 
@@ -167,7 +163,6 @@ def update_margin_status(symbol, margin_level):
         connection.close()
     
     return status_updated
-
 
 def update_last_prices(api_resp):
     db_resp = get_active_trades()
@@ -218,6 +213,7 @@ def show():
             logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
             api_resp = get_data_from_wazirx()
             get_diff_of_db_api_values(api_resp)
+            update_last_prices(api_resp)
             time.sleep(10)
         except Exception as e:
             logging.error(f"An error occurred: {e}")
