@@ -38,7 +38,7 @@ def main():
             print(f"Iteration completed in {iteration_end - iteration_start:.2f} seconds")
 
             # Wait for 10 seconds before the next execution cycle
-            time.sleep(10)
+            time.sleep(300)
 
         except Exception as e:
             print(f"An error occurred: {e}")
