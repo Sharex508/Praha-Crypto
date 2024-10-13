@@ -1,5 +1,7 @@
 import psycopg2
 from psycopg2 import sql
+import logging
+
 
 def get_database_connection():
     """Create and return a PostgreSQL database connection."""
@@ -46,12 +48,41 @@ def display_table(columns, rows):
     for row in rows:
         print("".join(str(row[i]).ljust(col_widths[i]) for i in range(len(row))))
 
+def reset_trading_table():
+    """Reset purchase-related fields in the trading table."""
+    connection = get_database_connection()
+    cursor = connection.cursor()
+    try:
+        # SQL to reset specific fields in the trading table
+        sql = """
+        UPDATE trading
+        SET 
+            purchasePrice = NULL,
+            mar3 = FALSE,
+            mar5 = FALSE,
+            mar10 = FALSE,
+            mar20 = FALSE,
+            created_at = NULL,
+            status = '0'
+        """
+        cursor.execute(sql)
+        connection.commit()
+        logging.info("Trading table purchase-related fields have been reset successfully.")
+    except Exception as e:
+        logging.error(f"Error resetting trading table: {e}")
+    finally:
+        cursor.close()
+        connection.close()
+
+
 def main():
-    columns, purchased_coins = fetch_purchased_coins()
-    if purchased_coins:
-        display_table(columns, purchased_coins)
-    else:
-        print("No purchased coins found.")
+    reset_trading_table()
+
+    #columns, purchased_coins = fetch_purchased_coins()
+    #if purchased_coins:
+    #    display_table(columns, purchased_coins)
+    #else:
+    #   print("No purchased coins found.")
 
 if __name__ == "__main__":
     main()
