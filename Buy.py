@@ -49,11 +49,11 @@ def get_coin_limits():
         cursor.execute(sql)
         limits = cursor.fetchone()
         coin_limits = {
-            "margin3count": int(float(limits[0])),
-            "margin5count": int(float(limits[1])),
-            "margin10count": int(float(limits[2])),
-            "margin20count": int(float(limits[3])),
-            "amount": float(limits[4])
+            "margin3count": int(float(limits[0] or 0)),
+            "margin5count": int(float(limits[1] or 0)),
+            "margin10count": int(float(limits[2] or 0)),
+            "margin20count": int(float(limits[3] or 0)),
+            "amount": float(limits[4] or 0.0)
         }
         logging.debug(f"DEBUG - Coin Limits: {coin_limits}")
         return coin_limits
@@ -91,8 +91,8 @@ def task(db_resp, api_resp, data):
             logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
             continue
 
-        api_last_price = float(api_match_data['price'])
-        db_price = float(db_match_data["intialPrice"])
+        api_last_price = float(api_match_data['price'] or 0.0)
+        db_price = float(db_match_data.get("intialPrice") or 0.0)
         logging.debug(f"\nProcessing {ele}\nLast Price: {api_last_price}\nDB Price: {db_price}\nCoin Limits: {coin_limits}")
 
         db_margin, margin_level, matched_percentage = calculate_margin_level(db_match_data, coin_limits, api_last_price)
@@ -125,8 +125,8 @@ def calculate_margin_level(db_match_data, coin_limits, last_price):
     ]
 
     for level_flag, margin_field, limit, percentage in margin_levels:
-        if not db_match_data[level_flag] and float(db_match_data[margin_field]) <= last_price:
-            return float(db_match_data[margin_field]), level_flag, percentage
+        if not db_match_data[level_flag] and float(db_match_data[margin_field] or 0.0) <= last_price:
+            return float(db_match_data[margin_field] or 0.0), level_flag, percentage
     
     return None, None, None
 
@@ -137,13 +137,13 @@ def update_margin_status(symbol, margin_level):
         cursor.execute(sql_update_trading, (symbol,))
         
         if margin_level == 'mar3':
-            sql_update_coinnumber = "UPDATE Coinnumber SET margin3count = margin3count - 1"
+            sql_update_coinnumber = "UPDATE Coinnumber SET margin3count = margin3count::integer - 1"
         elif margin_level == 'mar5':
-            sql_update_coinnumber = "UPDATE Coinnumber SET Margin5count = Margin5count - 1"
+            sql_update_coinnumber = "UPDATE Coinnumber SET margin5count = margin5count::integer - 1"
         elif margin_level == 'mar10':
-            sql_update_coinnumber = "UPDATE Coinnumber SET Margin10count = Margin10count - 1"
+            sql_update_coinnumber = "UPDATE Coinnumber SET margin10count = margin10count::integer - 1"
         elif margin_level == 'mar20':
-            sql_update_coinnumber = "UPDATE Coinnumber SET Margin20count = Margin20count - 1"
+            sql_update_coinnumber = "UPDATE Coinnumber SET margin20count = margin20count::integer - 1"
         
         cursor.execute(sql_update_coinnumber)
         connection.commit()

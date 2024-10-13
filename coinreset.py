@@ -1,14 +1,15 @@
 import time
+import logging
 import psycopg2
 from psycopg2 import Error
-import requests
-import logging
 from psycopg2.extras import execute_batch
+import requests
 from simple_salesforce import Salesforce
 
 logging.basicConfig(level=logging.INFO)
 
 def get_database_connection():
+    """Create and return a PostgreSQL database connection."""
     return psycopg2.connect(
         user="postgres",
         password="Harsha508",
@@ -18,6 +19,7 @@ def get_database_connection():
     )
 
 def truncate_tables():
+    """Truncate the trading and Coinnumber tables."""
     try:
         with get_database_connection() as conn:
             with conn.cursor() as cursor:
@@ -28,6 +30,7 @@ def truncate_tables():
         logging.error(f"Error truncating tables: {e}")
 
 def create_tables():
+    """Create the trading and Coinnumber tables if they do not exist."""
     try:
         with get_database_connection() as connection:
             with connection.cursor() as cursor:
@@ -57,12 +60,12 @@ def create_tables():
                 # Create Coinnumber table with sfid as primary key
                 create_coinnumber_table_query = '''
                     CREATE TABLE IF NOT EXISTS Coinnumber (
-                        sfid            TEXT    PRIMARY KEY,
-                        margin3count    TEXT,
-                        margin5count    TEXT,
-                        margin10count   TEXT,
-                        margin20count   TEXT,
-                        amount          TEXT
+                        sfid            TEXT PRIMARY KEY,
+                        margin3count    INTEGER,
+                        margin5count    INTEGER,
+                        margin10count   INTEGER,
+                        margin20count   INTEGER,
+                        amount          FLOAT
                     );
                 '''
                 cursor.execute(create_coinnumber_table_query)
@@ -71,65 +74,74 @@ def create_tables():
         logging.error(f"Error creating tables: {error}")
 
 def getall_data(filter='USDT'):
+    """Fetch trading data from Binance API."""
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
-    resp = [d for d in data if filter in d['symbol'] and 'price' in d]
-
-    for obj in resp:
-        lprice = float(obj['price'])
-        obj.update({
-            "intialPrice": lprice,
-            "highPrice": lprice,
-            "lastPrice": lprice,
-            "margin3": lprice * 1.03,
-            "margin5": lprice * 1.05,
-            "margin10": lprice * 1.10,
-            "margin20": lprice * 1.20,
-            "purchasePrice": ""
-        })
-        logging.info('Processed data for %s', obj['symbol'])
-
-    return resp
+    trading_data = [
+        {
+            'symbol': d['symbol'],
+            'intialPrice': float(d['price']),
+            'highPrice': float(d['price']),
+            'lastPrice': float(d['price']),
+            'margin3': float(d['price']) * 1.03,
+            'margin5': float(d['price']) * 1.05,
+            'margin10': float(d['price']) * 1.10,
+            'margin20': float(d['price']) * 1.20,
+            'purchasePrice': ""
+        }
+        for d in data if filter in d['symbol']
+    ]
+    logging.info(f"Fetched and processed {len(trading_data)} records from Binance API.")
+    return trading_data
 
 def fetch_coinnumber_data_from_salesforce():
+    """Fetch margin and amount data from Salesforce Account records."""
     # Replace with your Salesforce credentials
-    sf = Salesforce(username='harshacrypto508@crypto.com', password='Harsha508@2024', security_token='yPGnaLPAjlnpZmLWSeu8YCNB')
+    sf = Salesforce(username='your_username', password='your_password', security_token='your_security_token')
     query = "SELECT ID, Margin3Count__c, Margin5Count__c, Margin10Count__c, Margin20Count__c, Amount__c FROM Account"
     records = sf.query_all(query)
 
     # Transform Salesforce records into the required format
-    coinnumber_data = []
-    for record in records['records']:
-        coinnumber_data.append((
+    coinnumber_data = [
+        (
             record['Id'],  # Salesforce ID mapped to sfid
-            record.get('Margin3Count__c', '0'),
-            record.get('Margin5Count__c', '0'),
-            record.get('Margin10Count__c', '0'),
-            record.get('Margin20Count__c', '0'),
-            record.get('Amount__c', '5')  # Default to 5 if no value provided
-        ))
-    logging.info("Fetched Coinnumber data from Salesforce.")
+            int(record.get('Margin3Count__c', '0')),
+            int(record.get('Margin5Count__c', '0')),
+            int(record.get('Margin10Count__c', '0')),
+            int(record.get('Margin20Count__c', '0')),
+            float(record.get('Amount__c', '5'))  # Default to 5 if no value provided
+        )
+        for record in records['records']
+    ]
+    logging.info(f"Fetched {len(coinnumber_data)} Coinnumber records from Salesforce.")
     return coinnumber_data
 
 def insert_data_db(trading_data, coinnumber_data):
+    """Insert trading and Coinnumber data into the PostgreSQL database."""
     try:
         with get_database_connection() as connection:
             connection.autocommit = True
             with connection.cursor() as cursor:
                 # Insert into trading table
                 trading_columns = ['symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 'purchasePrice']
-                placeholders = ','.join(['%s'] * len(trading_columns))
-                trading_query = f"INSERT INTO trading ({','.join(trading_columns)}) VALUES ({placeholders})"
+                trading_query = f"INSERT INTO trading ({','.join(trading_columns)}) VALUES ({','.join(['%s'] * len(trading_columns))})"
                 trading_values = [
-                    [obj['symbol'], obj['intialPrice'], obj['highPrice'], obj['lastPrice'], obj['margin3'], obj['margin5'], obj['margin10'], obj['margin20'], obj['purchasePrice']]
+                    (
+                        obj['symbol'], obj['intialPrice'], obj['highPrice'], obj['lastPrice'],
+                        obj['margin3'], obj['margin5'], obj['margin10'], obj['margin20'], obj['purchasePrice']
+                    )
                     for obj in trading_data
                 ]
                 execute_batch(cursor, trading_query, trading_values)
-                logging.info("Inserted data into trading table.")
+                logging.info("Inserted trading data into 'trading' table.")
 
                 # Insert into Coinnumber table
-                coinnumber_query = "INSERT INTO Coinnumber (sfid, margin3count, margin5count, margin10count, margin20count, amount) VALUES (%s, %s, %s, %s, %s, %s)"
+                coinnumber_query = '''
+                    INSERT INTO Coinnumber (sfid, margin3count, margin5count, margin10count, margin20count, amount)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (sfid) DO NOTHING;
+                '''
                 execute_batch(cursor, coinnumber_query, coinnumber_data)
-                logging.info("Inserted data into Coinnumber table.")
+                logging.info("Inserted Coinnumber data into 'Coinnumber' table.")
     except Exception as error:
         logging.error(f"Error inserting data into PostgreSQL: {error}")
 
