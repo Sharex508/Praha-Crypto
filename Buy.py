@@ -211,7 +211,7 @@ def show():
             time.sleep(60)
         except Exception as e:
             logging.error(f"An error occurred: {e}")
-            time.sleep(5)
+            time.sleep(60)
 
 if __name__ == "__main__":
     show()
