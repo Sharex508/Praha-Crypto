@@ -21,8 +21,8 @@ def get_db_connection():
         logging.error(f"Error connecting to database: {e}")
         return None
 
-def fetch_all_data_from_table(table_name):
-    """Fetch and display all data from a specific table."""
+def fetch_all_data_from_table_sorted(table_name, sort_column="percentage", ascending=False):
+    """Fetch and display all data from a specific table, sorted by the specified column."""
     connection = get_db_connection()
     if connection is None:
         logging.error("Failed to connect to database.")
@@ -31,8 +31,13 @@ def fetch_all_data_from_table(table_name):
     try:
         with connection:
             with connection.cursor() as cursor:
-                # Construct and execute query to fetch all rows from the specified table
-                query = sql.SQL("SELECT * FROM {}").format(sql.Identifier(table_name))
+                # Construct and execute query to fetch all rows from the specified table and sort by a specific column
+                order = sql.SQL("ASC") if ascending else sql.SQL("DESC")
+                query = sql.SQL("SELECT * FROM {} ORDER BY {} {}").format(
+                    sql.Identifier(table_name),
+                    sql.Identifier(sort_column),
+                    order
+                )
                 cursor.execute(query)
                 
                 # Fetch and format column names and row data
@@ -42,7 +47,7 @@ def fetch_all_data_from_table(table_name):
                 # Display data in a table format
                 display_table(columns, rows)
                 
-                logging.info(f"Fetched {len(rows)} records from table '{table_name}'")
+                logging.info(f"Fetched {len(rows)} records from table '{table_name}' sorted by '{sort_column}'")
                 
     except Exception as e:
         logging.error(f"Error fetching data from table {table_name}: {e}")
@@ -61,6 +66,7 @@ def display_table(columns, rows):
         print("".join(str(row[i]).ljust(col_widths[i]) for i in range(len(row))))
 
 if __name__ == "__main__":
-    # Specify the name of the table you want to retrieve data from
+    # Specify the name of the table and the column to sort by
     table_name = "trading"  # Change this to any table name in your database
-    fetch_all_data_from_table(table_name)
+    sort_column = "percentage"  # Replace this with the actual percentage column name
+    fetch_all_data_from_table_sorted(table_name, sort_column, ascending=False)
