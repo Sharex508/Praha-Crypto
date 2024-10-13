@@ -68,6 +68,8 @@ def reset_trading_table():
         cursor.execute(sql)
         connection.commit()
         logging.info("Trading table purchase-related fields have been reset successfully.")
+        print("Trading table purchase-related fields have been reset successfully.")
+
     except Exception as e:
         logging.error(f"Error resetting trading table: {e}")
     finally:
