@@ -70,15 +70,25 @@ def get_diff_of_db_api_values(api_resp):
     chunk_size = min(20, len(symbols_to_process))
     chunks = [symbols_to_process[i:i + chunk_size] for i in range(0, len(symbols_to_process), chunk_size)]
     
+    # Counter for the total number of coins updated in this iteration
+    total_coins_updated = 0
+    
     with ThreadPoolExecutor(max_workers=4) as executor:
         for chunk in chunks:
-            executor.submit(task, db_resp, api_resp, chunk)
+            # Execute task function and add the updated count
+            future = executor.submit(task, db_resp, api_resp, chunk)
+            total_coins_updated += future.result()
+    
+    logging.debug(f"Total coins updated in this iteration: {total_coins_updated}")
 
 def task(db_resp, api_resp, data):
     coin_limits = get_coin_limits()
     if not coin_limits:
         logging.error("Error: Coin limits not found.")
-        return
+        return 0
+
+    # Counter for coins updated within this task
+    coins_updated = 0
 
     for ele in data:
         db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
@@ -109,6 +119,7 @@ def task(db_resp, api_resp, data):
 
             status_updated = update_margin_status(db_match_data['symbol'], margin_level, coin_limits)
             if status_updated:
+                coins_updated += 1
                 logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status updated.")
             else:
                 logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status update failed.")
@@ -118,6 +129,8 @@ def task(db_resp, api_resp, data):
                 f"Current Price: {api_last_price}\n"
                 f"Margin Level: {margin_level or 'N/A'}"
             )
+    
+    return coins_updated  # Return the count of coins updated in this task
 
 def calculate_margin_level(db_match_data, coin_limits, last_price):
     margin_levels = [
