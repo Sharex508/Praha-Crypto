@@ -17,7 +17,7 @@ def get_db_connection():
 def get_data_from_wazirx(filter='USDT'):
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
     resp = [d for d in data if filter in d['symbol'] and 'price' in d]
-    logging.debug(f"DEBUG - Fetched {len(resp)} symbols from API with filter '{filter}'.")
+    logging.debug(f"Fetched {len(resp)} symbols from API with filter '{filter}'.")
     return resp
 
 def get_results():
@@ -34,7 +34,7 @@ def get_results():
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
                 'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20', 'status')
         data = [dict(zip(keys, obj)) for obj in results]
-        logging.debug(f"DEBUG - Fetched {len(data)} trading records from the database.")
+        logging.debug(f"Fetched {len(data)} trading records from the database.")
         return data
     except Exception as e:
         logging.error(f"Error fetching results: {e}")
@@ -55,7 +55,7 @@ def get_coin_limits():
             "margin20count": int(float(limits[3] or 0)),
             "amount": float(limits[4] or 0.0)
         }
-        logging.debug(f"DEBUG - Coin Limits: {coin_limits}")
+        logging.debug(f"Coin Limits: {coin_limits}")
         return coin_limits
     except Exception as e:
         logging.error(f"Error fetching coin limits: {e}")
@@ -67,7 +67,6 @@ def get_coin_limits():
 def get_diff_of_db_api_values(api_resp):
     db_resp = get_results()
     symbols_to_process = [obj['symbol'] for obj in db_resp]
-    logging.debug(f"DEBUG - Symbols to process: {symbols_to_process}")
     chunk_size = min(20, len(symbols_to_process))
     chunks = [symbols_to_process[i:i + chunk_size] for i in range(0, len(symbols_to_process), chunk_size)]
     
@@ -84,11 +83,11 @@ def task(db_resp, api_resp, data):
     for ele in data:
         db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
         if not db_match_data or db_match_data['status'] == '1':
-            logging.debug(f"DEBUG - Symbol {ele} not found in DB data or already purchased.")
+            logging.debug(f"Skipping {ele} as it is already purchased or not found in DB.")
             continue
         api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
         if not api_match_data:
-            logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
+            logging.debug(f"Skipping {ele} as it is not found in API data.")
             continue
 
         api_last_price = float(api_match_data['price'] or 0.0)
@@ -110,9 +109,9 @@ def task(db_resp, api_resp, data):
 
             status_updated = update_margin_status(db_match_data['symbol'], margin_level)
             if status_updated:
-                logging.debug(f"DEBUG - {ele} processed at {matched_percentage}% margin level {margin_level}. Status updated successfully.")
+                logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status updated.")
             else:
-                logging.debug(f"DEBUG - {ele} processed at {matched_percentage}% margin level {margin_level}. Status update failed.")
+                logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status update failed.")
         else:
             logging.debug(
                 f"No action for {ele}.\n"
@@ -138,7 +137,6 @@ def update_margin_status(symbol, margin_level):
     connection, cursor = get_db_connection()
     status_updated = False
     try:
-        # Update the trading table with the margin level as True and set status to '1'
         sql_update_trading = f"""
             UPDATE trading
             SET {margin_level} = TRUE, status = '1'
@@ -165,6 +163,49 @@ def update_margin_status(symbol, margin_level):
         connection.close()
     
     return status_updated
+
+def update_last_prices(api_resp):
+    db_resp = get_active_trades()
+    updates = []
+    for trade in db_resp:
+        symbol = trade['symbol']
+        matching_api_data = next((item for item in api_resp if item["symbol"] == symbol), None)
+        if matching_api_data:
+            new_last_price = matching_api_data['price']
+            updates.append((new_last_price, symbol))
+    
+    update_coin_last_price_batch(updates)
+
+def update_coin_last_price_batch(updates):
+    if not updates:
+        return
+    connection, cursor = get_db_connection()
+    try:
+        sql = "UPDATE trading SET lastPrice = %s WHERE symbol = %s"
+        cursor.executemany(sql, updates)
+        connection.commit()
+        logging.info(f"Updated last prices for {len(updates)} symbols")
+    except Exception as e:
+        logging.error(f"Error updating last prices: {e}")
+    finally:
+        cursor.close()
+        connection.close()
+
+def get_active_trades():
+    connection, cursor = get_db_connection()
+    try:
+        sql = "SELECT * FROM trading WHERE status = '1'"
+        cursor.execute(sql)
+        results = cursor.fetchall()
+        keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 
+                'margin10', 'margin20', 'purchasePrice', 'quantity', 'created_at', 'status')
+        data = [dict(zip(keys, obj)) for obj in results]
+        return data
+    except Exception as e:
+        logging.error(f"Error fetching active trades: {e}")
+    finally:
+        cursor.close()
+        connection.close()
 
 def show():
     while True:
