@@ -76,7 +76,6 @@ def get_diff_of_db_api_values(api_resp):
             executor.submit(task, db_resp, api_resp, chunk)
 
 def task(db_resp, api_resp, data):
-    # Fetch current coin limits directly from the Coinnumber table
     coin_limits = get_coin_limits()
     if not coin_limits:
         logging.error("Error: Coin limits not found.")
@@ -92,25 +91,16 @@ def task(db_resp, api_resp, data):
             logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
             continue
 
-        # Ensure coin hasn't already been purchased at any margin level
-        if db_match_data['mar3'] or db_match_data['mar5'] or db_match_data['mar10'] or db_match_data['mar20']:
-            logging.debug(f"{ele} has already been purchased at a margin level. Skipping.")
-            continue
-
         api_last_price = float(api_match_data['price'] or 0.0)
         db_price = float(db_match_data.get("intialPrice") or 0.0)
         logging.debug(f"\nProcessing {ele}\nLast Price: {api_last_price}\nDB Price: {db_price}\nCoin Limits: {coin_limits}")
 
-        # Determine the margin level for this coin based on the last price
         db_margin, margin_level, matched_percentage = calculate_margin_level(db_match_data, coin_limits, api_last_price)
-        logging.debug(f"DEBUG - Margin Check for {ele}: Level - {margin_level}, Required Price - {db_margin}, Matched Percentage - {matched_percentage}%")
-
-        # Check if there are remaining slots for the margin level from `Coinnumber`
-        if margin_level and coin_limits[f"{margin_level}count"] > 0 and api_last_price >= db_margin:
+        
+        if db_margin and api_last_price >= db_margin:
             amount = coin_limits['amount']
             base_asset_symbol = ele.replace('USDT', '')
 
-            # Log the purchase action
             logging.info(
                 f"Action: Buying {base_asset_symbol}\n"
                 f"Level: {margin_level}\n"
@@ -119,11 +109,11 @@ def task(db_resp, api_resp, data):
                 f"Matched at Percentage: {matched_percentage}%"
             )
 
-            # Update the trading table and decrement count in `Coinnumber` table for the purchased margin level
-            update_margin_status(db_match_data['symbol'], margin_level)
-
-            # Update Coinnumber count to reflect the purchase
-            decrement_margin_count(margin_level)
+            status_updated = update_margin_status(db_match_data['symbol'], margin_level)
+            if status_updated:
+                logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status updated successfully.")
+            else:
+                logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status update failed.")
         else:
             logging.debug(
                 f"No action for {ele}.\n"
@@ -145,32 +135,35 @@ def calculate_margin_level(db_match_data, coin_limits, last_price):
     
     return None, None, None
 
-def decrement_margin_count(margin_level):
-    """Decrement the count for the given margin level in Coinnumber table."""
-    connection, cursor = get_db_connection()
-    try:
-        sql_update_coinnumber = f"UPDATE Coinnumber SET {margin_level}count = {margin_level}count::integer - 1 WHERE {margin_level}count > 0"
-        cursor.execute(sql_update_coinnumber)
-        connection.commit()
-        logging.info(f"{margin_level} count decremented in Coinnumber table.")
-    except Exception as e:
-        logging.error(f"Error updating Coinnumber count for {margin_level}: {e}")
-    finally:
-        cursor.close()
-        connection.close()
-
 def update_margin_status(symbol, margin_level):
+    """Updates the purchase status and margin level of a symbol in the database."""
     connection, cursor = get_db_connection()
+    status_updated = False
     try:
         sql_update_trading = f"UPDATE trading SET {margin_level} = TRUE, status = '1' WHERE symbol = %s"
         cursor.execute(sql_update_trading, (symbol,))
+        
+        # Update the relevant Coinnumber count
+        if margin_level == 'mar3':
+            sql_update_coinnumber = "UPDATE Coinnumber SET margin3count = margin3count::integer - 1"
+        elif margin_level == 'mar5':
+            sql_update_coinnumber = "UPDATE Coinnumber SET margin5count = margin5count::integer - 1"
+        elif margin_level == 'mar10':
+            sql_update_coinnumber = "UPDATE Coinnumber SET margin10count = margin10count::integer - 1"
+        elif margin_level == 'mar20':
+            sql_update_coinnumber = "UPDATE Coinnumber SET margin20count = margin20count::integer - 1"
+        
+        cursor.execute(sql_update_coinnumber)
         connection.commit()
+        status_updated = True
         logging.info(f"{symbol} purchased at {margin_level}. Remaining count updated.")
     except Exception as e:
         logging.error(f"Error updating margin status for {symbol}: {e}")
     finally:
         cursor.close()
         connection.close()
+    
+    return status_updated
 
 def update_last_prices(api_resp):
     db_resp = get_active_trades()
