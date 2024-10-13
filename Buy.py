@@ -25,14 +25,14 @@ def get_results():
     try:
         sql = """
         SELECT symbol, intialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
-               mar3, mar5, mar10, mar20
+               mar3, mar5, mar10, mar20, status
         FROM trading
         """
         cursor.execute(sql)
         results = cursor.fetchall()
 
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
-                'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20')
+                'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20', 'status')
         data = [dict(zip(keys, obj)) for obj in results]
         logging.debug(f"DEBUG - Fetched {len(data)} trading records from the database.")
         return data
@@ -64,63 +64,6 @@ def get_coin_limits():
         cursor.close()
         connection.close()
 
-def get_diff_of_db_api_values(api_resp):
-    db_resp = get_results()
-    dicts_data = [obj['symbol'] for obj in db_resp]
-    logging.debug(f"DEBUG - Symbols to process: {dicts_data}")
-    chunk_size = min(20, len(dicts_data))
-    chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
-    
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        for chunk in chunks:
-            executor.submit(task, db_resp, api_resp, chunk)
-
-def task(db_resp, api_resp, data):
-    coin_limits = get_coin_limits()
-    if not coin_limits:
-        logging.error("Error: Coin limits not found.")
-        return
-
-    for ele in data:
-        db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
-        if not db_match_data:
-            logging.debug(f"DEBUG - Symbol {ele} not found in DB data.")
-            continue
-        api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
-        if not api_match_data:
-            logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
-            continue
-
-        api_last_price = float(api_match_data['price'] or 0.0)
-        db_price = float(db_match_data.get("intialPrice") or 0.0)
-        logging.debug(f"\nProcessing {ele}\nLast Price: {api_last_price}\nDB Price: {db_price}\nCoin Limits: {coin_limits}")
-
-        db_margin, margin_level, matched_percentage = calculate_margin_level(db_match_data, coin_limits, api_last_price)
-        
-        if db_margin and api_last_price >= db_margin:
-            amount = coin_limits['amount']
-            base_asset_symbol = ele.replace('USDT', '')
-
-            logging.info(
-                f"Action: Buying {base_asset_symbol}\n"
-                f"Level: {margin_level}\n"
-                f"Required Margin: {db_margin}\n"
-                f"Amount: {amount}\n"
-                f"Matched at Percentage: {matched_percentage}%"
-            )
-
-            status_updated = update_margin_status(db_match_data['symbol'], margin_level)
-            if status_updated:
-                logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status updated successfully.")
-            else:
-                logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status update failed.")
-        else:
-            logging.debug(
-                f"No action for {ele}.\n"
-                f"Current Price: {api_last_price}\n"
-                f"Margin Level: {margin_level or 'N/A'}"
-            )
-
 def calculate_margin_level(db_match_data, coin_limits, last_price):
     margin_levels = [
         ("mar3", "margin3", coin_limits['margin3count'], 3),
@@ -130,29 +73,19 @@ def calculate_margin_level(db_match_data, coin_limits, last_price):
     ]
 
     for level_flag, margin_field, limit, percentage in margin_levels:
-        if not db_match_data[level_flag] and float(db_match_data[margin_field] or 0.0) <= last_price:
+        if limit > 0 and not db_match_data[level_flag] and float(db_match_data[margin_field] or 0.0) <= last_price:
             return float(db_match_data[margin_field] or 0.0), level_flag, percentage
-    
     return None, None, None
 
 def update_margin_status(symbol, margin_level):
-    """Updates the purchase status and margin level of a symbol in the database."""
     connection, cursor = get_db_connection()
     status_updated = False
     try:
         sql_update_trading = f"UPDATE trading SET {margin_level} = TRUE, status = '1' WHERE symbol = %s"
         cursor.execute(sql_update_trading, (symbol,))
         
-        # Update the relevant Coinnumber count
-        if margin_level == 'mar3':
-            sql_update_coinnumber = "UPDATE Coinnumber SET margin3count = margin3count::integer - 1"
-        elif margin_level == 'mar5':
-            sql_update_coinnumber = "UPDATE Coinnumber SET margin5count = margin5count::integer - 1"
-        elif margin_level == 'mar10':
-            sql_update_coinnumber = "UPDATE Coinnumber SET margin10count = margin10count::integer - 1"
-        elif margin_level == 'mar20':
-            sql_update_coinnumber = "UPDATE Coinnumber SET margin20count = margin20count::integer - 1"
-        
+        margin_column = f"{margin_level}count"
+        sql_update_coinnumber = f"UPDATE Coinnumber SET {margin_column} = {margin_column}::integer - 1"
         cursor.execute(sql_update_coinnumber)
         connection.commit()
         status_updated = True
@@ -164,6 +97,49 @@ def update_margin_status(symbol, margin_level):
         connection.close()
     
     return status_updated
+
+def task(db_resp, api_resp, data):
+    coin_limits = get_coin_limits()
+    if not coin_limits:
+        logging.error("Error: Coin limits not found.")
+        return
+
+    for ele in data:
+        db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
+        api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
+
+        if db_match_data and api_match_data:
+            api_last_price = float(api_match_data['price'] or 0.0)
+            db_margin, margin_level, matched_percentage = calculate_margin_level(db_match_data, coin_limits, api_last_price)
+            
+            if db_margin and api_last_price >= db_margin:
+                amount = coin_limits['amount']
+                base_asset_symbol = ele.replace('USDT', '')
+
+                logging.info(
+                    f"Processing purchase for {ele}:\n"
+                    f"Last Price: {api_last_price}\n"
+                    f"Required Margin: {db_margin}\n"
+                    f"Amount: {amount}\n"
+                    f"Matched at Percentage: {matched_percentage}%\n"
+                    f"Level: {margin_level}"
+                )
+
+                status_updated = update_margin_status(db_match_data['symbol'], margin_level)
+                if status_updated:
+                    logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status updated successfully.")
+                else:
+                    logging.debug(f"{ele} processed at {matched_percentage}% margin level {margin_level}. Status update failed.")
+
+def get_diff_of_db_api_values(api_resp):
+    db_resp = get_results()
+    dicts_data = [obj['symbol'] for obj in db_resp]
+    chunk_size = min(20, len(dicts_data))
+    chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
+    
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        for chunk in chunks:
+            executor.submit(task, db_resp, api_resp, chunk)
 
 def update_last_prices(api_resp):
     db_resp = get_active_trades()
@@ -202,8 +178,6 @@ def get_active_trades():
                 'margin10', 'margin20', 'purchasePrice', 'quantity', 'created_at', 'status')
         data = [dict(zip(keys, obj)) for obj in results]
         return data
-    except Exception as e:
-        logging.error(f"Error fetching active trades: {e}")
     finally:
         cursor.close()
         connection.close()
