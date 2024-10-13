@@ -137,6 +137,7 @@ def update_margin_status(symbol, margin_level):
     connection, cursor = get_db_connection()
     status_updated = False
     try:
+        # Update trading table to mark the coin as purchased at this margin level
         sql_update_trading = f"""
             UPDATE trading
             SET {margin_level} = TRUE, status = '1'
@@ -144,7 +145,10 @@ def update_margin_status(symbol, margin_level):
         """
         cursor.execute(sql_update_trading, (symbol,))
 
-        margin_column = f"{margin_level}count"
+        # Select the appropriate column for the Coinnumber table based on margin level
+        margin_column = f"Margin{margin_level[3:]}count"  # Converts 'mar3' to 'Margin3count', etc.
+        
+        # Update the Coinnumber count for the specific margin level
         sql_update_coinnumber = f"UPDATE Coinnumber SET {margin_column} = {margin_column}::integer - 1"
         cursor.execute(sql_update_coinnumber)
 
@@ -163,6 +167,7 @@ def update_margin_status(symbol, margin_level):
         connection.close()
     
     return status_updated
+
 
 def update_last_prices(api_resp):
     db_resp = get_active_trades()
