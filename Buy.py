@@ -229,7 +229,7 @@ def show():
             api_resp = get_data_from_wazirx()
             get_diff_of_db_api_values(api_resp)
             update_last_prices(api_resp)
-            time.sleep(10)
+            time.sleep(60)
         except Exception as e:
             logging.error(f"An error occurred: {e}")
             time.sleep(60)
