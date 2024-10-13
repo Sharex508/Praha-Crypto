@@ -208,7 +208,7 @@ def show():
             
             end_time = time.time()
             logging.info(f"Iteration completed in {end_time - start_time:.2f} seconds")
-            time.sleep(5)
+            time.sleep(60)
         except Exception as e:
             logging.error(f"An error occurred: {e}")
             time.sleep(5)
