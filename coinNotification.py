@@ -13,22 +13,15 @@ def get_db_connection():
 def get_active_trades():
     connection, cursor = get_db_connection()
     try:
-        # Ensure the correct columns are fetched, remove 'quantity' if not required
-        sql = """
-        SELECT symbol, intialPrice, highPrice, lastPrice, margin3, margin5, 
-               margin10, margin20, purchasePrice, created_at, status, 
-               COALESCE(last_notified_percentage, 0.0) as last_notified_percentage
-        FROM trading WHERE status = '1'
-        """
+        sql = "SELECT * FROM trading WHERE status = '1'"
         cursor.execute(sql)
         results = cursor.fetchall()
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 
-                'margin10', 'margin20', 'purchasePrice', 'created_at', 'status', 'last_notified_percentage')
+                'margin10', 'margin20', 'purchasePrice', 'quantity', 'created_at', 'status', 'last_notified_percentage')
         data = [dict(zip(keys, obj)) for obj in results]
         return data
     except Exception as e:
         print(f"Error fetching active trades: {e}")
-        return []  # Return empty list if there's an error
     finally:
         cursor.close()
         connection.close()
@@ -76,21 +69,21 @@ def update_notified_percentage(symbol, percentage):
 def notify_price_increase(api_resp):
     db_resp = get_active_trades()
 
-    if not db_resp:
-        print("No active trades found or error in fetching trades.")
-        return
-
     for trade in db_resp:
         try:
             symbol = trade['symbol']
             initial_price = float(trade['intialPrice'])
-            last_notified = float(trade['last_notified_percentage'])
+            last_notified = float(trade.get('last_notified_percentage', 0.0) or 0.0)  # Default to 0.0 if None
             high_price = float(trade['highPrice'])
 
             matching_api_data = next((item for item in api_resp if item["symbol"] == symbol), None)
             if matching_api_data:
-                current_price = float(matching_api_data['price'])
+                current_price = float(matching_api_data['price'])  # Note: using 'price' field from API
                 percentage_increase = ((current_price - initial_price) / initial_price) * 100
+
+                gain = current_price - initial_price
+                five_percent_decrease_from_gain = gain * 0.05
+                decrease_threshold = current_price - five_percent_decrease_from_gain
 
                 # Update high price if current price exceeds it
                 if current_price > high_price:
@@ -101,17 +94,16 @@ def notify_price_increase(api_resp):
                     send_notification(symbol, initial_price, current_price, "increase", percentage_increase)
                     update_notified_percentage(symbol, percentage_increase)
 
-                # Check for a 5% decrease from the highest gain
-                gain = high_price - initial_price
-                decrease_threshold = high_price - (gain * 0.05)
+                # Check for a 5% decrease from the most recent gain
                 if current_price <= decrease_threshold:
-                    send_notification(symbol, initial_price, current_price, "decrease", -5)
+                    send_notification(symbol, initial_price, current_price, "decrease", five_percent_decrease_from_gain)
                     update_notified_percentage(symbol, percentage_increase)
 
         except TypeError as e:
             print(f"TypeError encountered for {trade['symbol']}: {e}. Skipping.")
         except Exception as e:
             print(f"Error processing {trade['symbol']}: {e}")
+
 
 if __name__ == "__main__":
     api_resp = get_data_from_wazirx()
