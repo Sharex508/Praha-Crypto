@@ -79,12 +79,12 @@ def reset_trading_table():
 
 def main():
 
-    #columns, purchased_coins = fetch_purchased_coins()
-    #if purchased_coins:
-    #    display_table(columns, purchased_coins)
-    #else:
-    #   print("No purchased coins found.")
-    reset_trading_table()
+    columns, purchased_coins = fetch_purchased_coins()
+    if purchased_coins:
+        display_table(columns, purchased_coins)
+    else:
+       print("No purchased coins found.")
+    #reset_trading_table()
 
 if __name__ == "__main__":
     main()
