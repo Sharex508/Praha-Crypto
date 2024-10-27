@@ -12,20 +12,24 @@ PURCHASE_LIMIT = 20
 purchased_count = 0  # Counter for the total number of coins purchased
 
 def get_db_connection():
-    """Establish and return a connection to the PostgreSQL database."""
-    try:
-        connection = psycopg2.connect(
-            user="postgres",
-            password="Harsha508",
-            host="harshacry.c3cca44au3xf.ap-south-1.rds.amazonaws.com",
-            port="5432",
-            database="HarshaCry"
-        )
-        logging.info("Database connection established.")
-        return connection
-    except Exception as e:
-        logging.error(f"Error connecting to database: {e}")
-        return None
+    """Establish and return a connection to the PostgreSQL database with retry."""
+    retries = 3
+    for attempt in range(retries):
+        try:
+            connection = psycopg2.connect(
+                user="postgres",
+                password="Harsha508",
+                host="harshacry.c3cca44au3xf.ap-south-1.rds.amazonaws.com",
+                port="5432",
+                database="HarshaCry"
+            )
+            logging.info("Database connection established.")
+            return connection
+        except Exception as e:
+            logging.error(f"Error connecting to database: {e}. Retrying {attempt + 1}/{retries}...")
+            time.sleep(5)
+    logging.error("Failed to connect to the database after retries.")
+    return None
 
 def fetch_all_data_from_table(table_name):
     """Fetch and display all data from a specific table."""
@@ -35,16 +39,15 @@ def fetch_all_data_from_table(table_name):
         return []
 
     try:
-        with connection:
-            with connection.cursor() as cursor:
-                # Fetch all rows from the specified table where status is not 1 (non-purchased)
-                cursor.execute(f"SELECT * FROM {table_name} WHERE status != '1'")
-                rows = cursor.fetchall()
-                columns = [desc[0] for desc in cursor.description]
-                data = [dict(zip(columns, row)) for row in rows]
-                
-                logging.debug(f"DEBUG - Fetched {len(data)} records from table '{table_name}'")
-                return data
+        with connection.cursor() as cursor:
+            # Fetch all rows from the specified table where status is not 1 (non-purchased)
+            cursor.execute(f"SELECT * FROM {table_name} WHERE status != '1'")
+            rows = cursor.fetchall()
+            columns = [desc[0] for desc in cursor.description]
+            data = [dict(zip(columns, row)) for row in rows]
+            
+            logging.debug(f"DEBUG - Fetched {len(data)} records from table '{table_name}'")
+            return data
     except Exception as e:
         logging.error(f"Error fetching data from table {table_name}: {e}")
         return []
@@ -66,12 +69,12 @@ def get_data_from_wazirx(filter='USDT'):
 def task(db_resp, api_resp):
     """Process the data and make purchases based on the highest qualifying margin."""
     global purchased_count  # To track the number of purchases
+    updates = []  # To store batch updates
 
     for coin in db_resp:
-        # Stop if we reach the purchase limit
         if purchased_count >= PURCHASE_LIMIT:
             logging.info(f"Purchase limit of {PURCHASE_LIMIT} reached. Stopping purchases.")
-            return
+            break
 
         symbol = coin["symbol"]
         api_data = next((item for item in api_resp if item["symbol"] == symbol), None)
@@ -85,61 +88,46 @@ def task(db_resp, api_resp):
 
         logging.debug(f"Processing {symbol} - Last Price: {api_last_price}, DB Price: {db_price}")
 
-        # Margin logic for mar3, mar5, mar10, mar20
-        margin3 = float(coin.get("margin3", 0))
-        margin5 = float(coin.get("margin5", 0))
-        margin10 = float(coin.get("margin10", 0))
-        margin20 = float(coin.get("margin20", 0))
+        # Prioritize higher margins first (mar20, mar10, mar5, mar3)
+        if not coin['mar20'] and api_last_price >= float(coin.get("margin20", 0)):
+            updates.append(('mar20', coin['symbol']))
+        elif not coin['mar10'] and api_last_price >= float(coin.get("margin10", 0)):
+            updates.append(('mar10', coin['symbol']))
+        elif not coin['mar5'] and api_last_price >= float(coin.get("margin5", 0)):
+            updates.append(('mar5', coin['symbol']))
+        elif not coin['mar3'] and api_last_price >= float(coin.get("margin3", 0)):
+            updates.append(('mar3', coin['symbol']))
 
-        # Keep track of the highest margin
-        highest_margin_level = None
-        highest_margin = 0
-
-        # Check which margin levels qualify
-        if not coin['mar3'] and api_last_price >= margin3:
-            highest_margin_level = 'mar3'
-            highest_margin = margin3
-        if not coin['mar5'] and api_last_price >= margin5:
-            highest_margin_level = 'mar5'
-            highest_margin = margin5
-        if not coin['mar10'] and api_last_price >= margin10:
-            highest_margin_level = 'mar10'
-            highest_margin = margin10
-        if not coin['mar20'] and api_last_price >= margin20:
-            highest_margin_level = 'mar20'
-            highest_margin = margin20
-
-        # Purchase the coin at the highest qualifying margin
-        if highest_margin_level:
-            logging.debug(f"Purchasing {symbol} at {highest_margin_level} margin. Last price: {api_last_price}, Required: {highest_margin}")
-            purchased_count += 1
-            update_margin_status(coin['symbol'], highest_margin_level)
-
+        purchased_count += 1
         logging.debug(f"DEBUG - {symbol} processed, total purchased: {purchased_count}")
 
-def update_margin_status(symbol, margin_level):
-    """Update the margin status in the database for a purchased coin."""
-    connection = get_db_connection()
-    if connection is None:
-        logging.error("Error: Failed to connect to the database.")
+    # Perform batch updates
+    if updates:
+        update_margin_status_batch(updates)
+
+def update_margin_status_batch(updates):
+    """Batch update margin status for multiple coins."""
+    if not updates:
         return
+
     try:
-        # Update the margin level to TRUE and mark the status as purchased (status = '1')
-        sql_update = f"UPDATE trading SET {margin_level} = TRUE, status = '1' WHERE symbol = %s"
-        with connection.cursor() as cursor:
-            cursor.execute(sql_update, (symbol,))
-            connection.commit()
-        logging.info(f"Updated {symbol} with margin level {margin_level}.")
+        with get_db_connection() as connection:
+            with connection.cursor() as cursor:
+                sql_update = "UPDATE trading SET {} = TRUE, status = '1' WHERE symbol = %s"
+                for margin_level, symbol in updates:
+                    cursor.execute(sql_update.format(margin_level), (symbol,))
+                connection.commit()
+        logging.info(f"Batch updated {len(updates)} records.")
     except Exception as e:
-        logging.error(f"Error updating margin status for {symbol}: {e}")
-    finally:
-        connection.close()
+        logging.error(f"Error in batch update: {e}")
 
 def show():
     """Main function to initiate data fetching and processing."""
     global purchased_count  # Reset the purchase count at the beginning
 
     while purchased_count < PURCHASE_LIMIT:
+        purchased_count = 0  # Reset purchased count each time show() starts
+
         logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
         # Get API data
