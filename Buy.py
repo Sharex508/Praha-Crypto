@@ -43,7 +43,6 @@ def get_coin_limits_and_trading_sums():
                SUM(CASE WHEN mar10 THEN 1 ELSE 0 END) AS sum_mar10,
                SUM(CASE WHEN mar20 THEN 1 ELSE 0 END) AS sum_mar20
         FROM trading
-        WHERE status != 1
         """
         cursor.execute(sql_sum)
         trading_sums = cursor.fetchone()
@@ -67,19 +66,23 @@ def get_coin_limits_and_trading_sums():
 def get_results():
     connection, cursor = get_db_connection()
     try:
-        # Fetch full set of fields needed for processing, but only for rows where status != 1
+        # Fetch full set of fields needed for processing, but only for rows where status != '1'
         sql = """
         SELECT symbol, intialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
                mar3, mar5, mar10, mar20
         FROM trading
-        WHERE status != 1
+        WHERE status != '1'  -- Compare status as a string, because status is of type TEXT
         """
         cursor.execute(sql)
         results = cursor.fetchall()
 
+        # Define the keys corresponding to the fields in the result
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
                 'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20')
+
+        # Zip the results with the keys and convert them into a list of dictionaries
         data = [dict(zip(keys, obj)) for obj in results]
+
         logging.debug(f"DEBUG - Fetched {len(data)} non-purchased trading records from the database.")
         return data
     except Exception as e:
