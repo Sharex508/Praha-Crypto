@@ -1,4 +1,4 @@
-from Buy import show
+from Buy import show, get_data_from_wazirx  # Import both show and get_data_from_wazirx
 from coinNotification import notify_price_increase
 import time
 
