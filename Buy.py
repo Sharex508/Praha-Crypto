@@ -64,7 +64,7 @@ def get_data_from_wazirx(filter='USDT'):
         return []
 
 def task(db_resp, api_resp):
-    """Process the data and make purchases based on the margin logic."""
+    """Process the data and make purchases based on the highest qualifying margin."""
     global purchased_count  # To track the number of purchases
 
     for coin in db_resp:
@@ -91,23 +91,29 @@ def task(db_resp, api_resp):
         margin10 = float(coin.get("margin10", 0))
         margin20 = float(coin.get("margin20", 0))
 
-        # Process based on margins and update the count of purchased coins
+        # Keep track of the highest margin
+        highest_margin_level = None
+        highest_margin = 0
+
+        # Check which margin levels qualify
         if not coin['mar3'] and api_last_price >= margin3:
-            logging.debug(f"Purchasing {symbol} at 3% margin. Last price: {api_last_price}, Required: {margin3}")
+            highest_margin_level = 'mar3'
+            highest_margin = margin3
+        if not coin['mar5'] and api_last_price >= margin5:
+            highest_margin_level = 'mar5'
+            highest_margin = margin5
+        if not coin['mar10'] and api_last_price >= margin10:
+            highest_margin_level = 'mar10'
+            highest_margin = margin10
+        if not coin['mar20'] and api_last_price >= margin20:
+            highest_margin_level = 'mar20'
+            highest_margin = margin20
+
+        # Purchase the coin at the highest qualifying margin
+        if highest_margin_level:
+            logging.debug(f"Purchasing {symbol} at {highest_margin_level} margin. Last price: {api_last_price}, Required: {highest_margin}")
             purchased_count += 1
-            update_margin_status(coin['symbol'], 'mar3')
-        elif not coin['mar5'] and api_last_price >= margin5:
-            logging.debug(f"Purchasing {symbol} at 5% margin. Last price: {api_last_price}, Required: {margin5}")
-            purchased_count += 1
-            update_margin_status(coin['symbol'], 'mar5')
-        elif not coin['mar10'] and api_last_price >= margin10:
-            logging.debug(f"Purchasing {symbol} at 10% margin. Last price: {api_last_price}, Required: {margin10}")
-            purchased_count += 1
-            update_margin_status(coin['symbol'], 'mar10')
-        elif not coin['mar20'] and api_last_price >= margin20:
-            logging.debug(f"Purchasing {symbol} at 20% margin. Last price: {api_last_price}, Required: {margin20}")
-            purchased_count += 1
-            update_margin_status(coin['symbol'], 'mar20')
+            update_margin_status(coin['symbol'], highest_margin_level)
 
         logging.debug(f"DEBUG - {symbol} processed, total purchased: {purchased_count}")
 
