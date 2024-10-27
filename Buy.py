@@ -87,13 +87,13 @@ def task(db_resp, api_resp):
 
         # Margin logic for mar3, mar5, mar10, mar20
         margin3 = float(coin.get("margin3", 0))
-        margin3count = int(coin.get("margin3count", 0))  # Track the remaining margin3 count
+        margin3count = int(coin.get("margin3count", 0) or 0)  # Track the remaining margin3 count, ensure None becomes 0
         margin5 = float(coin.get("margin5", 0))
-        margin5count = int(coin.get("margin5count", 0))  # Track the remaining margin5 count
+        margin5count = int(coin.get("margin5count", 0) or 0)  # Ensure None becomes 0
         margin10 = float(coin.get("margin10", 0))
-        margin10count = int(coin.get("margin10count", 0))  # Track the remaining margin10 count
+        margin10count = int(coin.get("margin10count", 0) or 0)  # Ensure None becomes 0
         margin20 = float(coin.get("margin20", 0))
-        margin20count = int(coin.get("margin20count", 0))  # Track the remaining margin20 count
+        margin20count = int(coin.get("margin20count", 0) or 0)  # Ensure None becomes 0
 
         # Keep track of the highest margin
         highest_margin_level = None
