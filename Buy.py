@@ -72,7 +72,7 @@ def get_results():
         SELECT symbol, intialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
                mar3, mar5, mar10, mar20
         FROM trading
-        WHERE status != '1'  -- Compare status as a string, because status is of type TEXT
+        WHERE status != '1'
         """
         cursor.execute(sql)
         results = cursor.fetchall()
