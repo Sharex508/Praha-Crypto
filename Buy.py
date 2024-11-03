@@ -96,28 +96,19 @@ def get_results():
         cursor.close()
         connection.close()
 
-import threading
-
-# Initialize a lock for synchronizing access to the purchase counts
-purchase_lock = threading.Lock()
-
 def task(db_resp, api_resp, coin_limits, trading_summary, data):
     """Process each chunk of data and make purchases based on the margin logic."""
     try:
         for ele in data:
             db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
             if not db_match_data:
-                logging.debug(f"DEBUG - Symbol {ele} not found in DB data.")
                 continue
             api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
             if not api_match_data:
-                logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
                 continue
 
             api_last_price = float(api_match_data['price'] or 0.0)
             db_price = float(db_match_data.get("intialPrice") or 0.0)
-
-            logging.debug(f"\nProcessing {ele}\nLast Price: {api_last_price}\nDB Price: {db_price}\nCoin Limits: {coin_limits}")
 
             # Convert the margin values from string to float before comparison
             margin3 = float(db_match_data["margin3"] or 0.0)
@@ -130,41 +121,33 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                 # Check and purchase at margin3 if limit not reached
                 if trading_summary["sum_mar3"] < coin_limits["margin3count"]:
                     if api_last_price >= margin3:
-                        logging.debug(f"DEBUG - Purchasing {ele} at 3% margin. Current count: {trading_summary['sum_mar3']} out of {coin_limits['margin3count']}")
+                        logging.info(f"Purchasing {ele} at 3% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar3')
                         trading_summary["sum_mar3"] += 1
-                    else:
-                        logging.debug(f"DEBUG - {ele} did not meet the margin3 condition. Last price: {api_last_price}, Required: {margin3}")
                     continue
 
                 # Check and purchase at margin5 if limit not reached
                 if trading_summary["sum_mar5"] < coin_limits["margin5count"]:
                     if api_last_price >= margin5:
-                        logging.debug(f"DEBUG - Purchasing {ele} at 5% margin. Current count: {trading_summary['sum_mar5']} out of {coin_limits['margin5count']}")
+                        logging.info(f"Purchasing {ele} at 5% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar5')
                         trading_summary["sum_mar5"] += 1
-                    else:
-                        logging.debug(f"DEBUG - {ele} did not meet the margin5 condition. Last price: {api_last_price}, Required: {margin5}")
                     continue
 
                 # Check and purchase at margin10 if limit not reached
                 if trading_summary["sum_mar10"] < coin_limits["margin10count"]:
                     if api_last_price >= margin10:
-                        logging.debug(f"DEBUG - Purchasing {ele} at 10% margin. Current count: {trading_summary['sum_mar10']} out of {coin_limits['margin10count']}")
+                        logging.info(f"Purchasing {ele} at 10% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar10')
                         trading_summary["sum_mar10"] += 1
-                    else:
-                        logging.debug(f"DEBUG - {ele} did not meet the margin10 condition. Last price: {api_last_price}, Required: {margin10}")
                     continue
 
                 # Check and purchase at margin20 if limit not reached
                 if trading_summary["sum_mar20"] < coin_limits["margin20count"]:
                     if api_last_price >= margin20:
-                        logging.debug(f"DEBUG - Purchasing {ele} at 20% margin. Current count: {trading_summary['sum_mar20']} out of {coin_limits['margin20count']}")
+                        logging.info(f"Purchasing {ele} at 20% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar20')
                         trading_summary["sum_mar20"] += 1
-                    else:
-                        logging.debug(f"DEBUG - {ele} did not meet the margin20 condition. Last price: {api_last_price}, Required: {margin20}")
 
     except Exception as e:
         logging.error(f"Error in task processing {ele}: {e}")
