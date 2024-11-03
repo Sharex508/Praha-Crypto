@@ -29,8 +29,10 @@ def get_coin_limits_and_trading_sums():
     """Fetch coin limits and trading sums from the database."""
     connection, cursor = get_db_connection()
     try:
+        # Get Coinnumber limits
         cursor.execute("SELECT margin3count, margin5count, margin10count, margin20count, amount FROM Coinnumber")
         limits = cursor.fetchone()
+
         coin_limits = {
             "margin3count": int(limits[0] or 0),
             "margin5count": int(limits[1] or 0),
@@ -39,6 +41,7 @@ def get_coin_limits_and_trading_sums():
             "amount": float(limits[4] or 0.0)
         }
 
+        # Get sum of mar3, mar5, mar10, mar20 from trading table where status != '1' (non-purchased coins)
         cursor.execute("""
             SELECT SUM(CASE WHEN mar3 THEN 1 ELSE 0 END) AS sum_mar3,
                    SUM(CASE WHEN mar5 THEN 1 ELSE 0 END) AS sum_mar5,
@@ -48,6 +51,7 @@ def get_coin_limits_and_trading_sums():
             WHERE status != '1'
         """)
         trading_sums = cursor.fetchone()
+
         trading_summary = {
             "sum_mar3": int(trading_sums[0] or 0),
             "sum_mar5": int(trading_sums[1] or 0),
@@ -77,9 +81,7 @@ def get_results():
 
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
                 'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20')
-
-        data = [dict(zip(keys, obj)) for obj in results]
-        return data
+        return [dict(zip(keys, obj)) for obj in results]
     except Exception as e:
         logging.error(f"Error fetching results: {e}")
         return []
@@ -87,54 +89,16 @@ def get_results():
         cursor.close()
         connection.close()
 
-def task(db_resp, api_resp, coin_limits, trading_summary, data):
-    """Process each chunk of data and make purchases based on the margin logic."""
-    for ele in data:
-        db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
-        if not db_match_data:
-            logging.debug(f"DEBUG - Symbol {ele} not found in DB data.")
-            continue
+def get_diff_of_db_api_values(api_resp):
+    """Get the differences between DB and API values and pre-calculate necessary limits and sums."""
+    db_resp = get_results()
+    coin_limits, trading_summary = get_coin_limits_and_trading_sums()
+    
+    if not db_resp or not coin_limits or not trading_summary:
+        logging.error("Error: Failed to retrieve necessary data from the database.")
+        return None, None, None
 
-        api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
-        if not api_match_data:
-            logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
-            continue
-
-        # Try to parse all fields, with a fallback to 0.0 if conversion fails
-        try:
-            api_last_price = float(api_match_data['price'])
-            margin3 = float(db_match_data["margin3"]) if db_match_data["margin3"] else 0.0
-            margin5 = float(db_match_data["margin5"]) if db_match_data["margin5"] else 0.0
-            margin10 = float(db_match_data["margin10"]) if db_match_data["margin10"] else 0.0
-            margin20 = float(db_match_data["margin20"]) if db_match_data["margin20"] else 0.0
-        except (ValueError, TypeError) as e:
-            logging.error(f"Invalid data for {ele}: {e}")
-            continue
-
-        with purchase_lock:
-            # Margin checks with limit enforcement
-            if trading_summary["sum_mar3"] < coin_limits["margin3count"] and api_last_price >= margin3:
-                logging.info(f"Purchasing {ele} at 3% margin.")
-                update_margin_status(db_match_data['symbol'], 'mar3')
-                trading_summary["sum_mar3"] += 1
-                continue
-
-            if trading_summary["sum_mar5"] < coin_limits["margin5count"] and api_last_price >= margin5:
-                logging.info(f"Purchasing {ele} at 5% margin.")
-                update_margin_status(db_match_data['symbol'], 'mar5')
-                trading_summary["sum_mar5"] += 1
-                continue
-
-            if trading_summary["sum_mar10"] < coin_limits["margin10count"] and api_last_price >= margin10:
-                logging.info(f"Purchasing {ele} at 10% margin.")
-                update_margin_status(db_match_data['symbol'], 'mar10')
-                trading_summary["sum_mar10"] += 1
-                continue
-
-            if trading_summary["sum_mar20"] < coin_limits["margin20count"] and api_last_price >= margin20:
-                logging.info(f"Purchasing {ele} at 20% margin.")
-                update_margin_status(db_match_data['symbol'], 'mar20')
-                trading_summary["sum_mar20"] += 1
+    return db_resp, coin_limits, trading_summary
 
 def update_margin_status(symbol, margin_level):
     """Update the margin status in the database for a purchased coin."""
@@ -148,6 +112,40 @@ def update_margin_status(symbol, margin_level):
     finally:
         cursor.close()
         connection.close()
+
+def task(db_resp, api_resp, coin_limits, trading_summary, data):
+    """Process each chunk of data and make purchases based on the margin logic."""
+    try:
+        for ele in data:
+            db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
+            if not db_match_data:
+                logging.debug(f"DEBUG - Symbol {ele} not found in DB data.")
+                continue
+            api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
+            if not api_match_data:
+                logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
+                continue
+
+            api_last_price = float(api_match_data['price'] or 0.0)
+
+            margin_levels = {
+                "margin3": float(db_match_data.get("margin3", 0.0)),
+                "margin5": float(db_match_data.get("margin5", 0.0)),
+                "margin10": float(db_match_data.get("margin10", 0.0)),
+                "margin20": float(db_match_data.get("margin20", 0.0))
+            }
+
+            # Use lock to ensure consistent access to the coin limits
+            with purchase_lock:
+                for margin_key, margin_value in margin_levels.items():
+                    if coin_limits[margin_key + "count"] > 0 and api_last_price >= margin_value:
+                        logging.info(f"Purchasing {ele} at {margin_key} margin.")
+                        update_margin_status(db_match_data['symbol'], margin_key)
+                        coin_limits[margin_key + "count"] -= 1  # Update local limit count
+                        break
+
+    except Exception as e:
+        logging.error(f"Error in task processing {ele}: {e}")
 
 def show():
     """Main loop to fetch data, process coins, and handle iterations."""
@@ -164,11 +162,10 @@ def show():
 
             # Get DB and pre-calculated values
             db_resp, coin_limits, trading_summary = get_diff_of_db_api_values(api_resp)
-            if not db_resp or not coin_limits or not trading_summary:
+            if not db_resp:
                 time.sleep(60)
                 continue
 
-            # Prepare symbols for processing
             symbols = [obj['symbol'] for obj in db_resp]
             chunk_size = min(20, len(symbols))
             chunks = [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
