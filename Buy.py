@@ -77,7 +77,6 @@ def get_results():
     finally:
         cursor.close()
         connection.close()
-
 def task(db_resp, api_resp, coin_limits, data):
     """Process each chunk of data and make purchases based on the margin logic."""
     try:
@@ -91,7 +90,7 @@ def task(db_resp, api_resp, coin_limits, data):
 
             api_last_price = float(api_match_data['price'] or 0.0)
 
-            # Use .get() to safely access margin levels, defaulting to 0.0 if any margin key is missing
+            # Ensure that each margin level exists, or provide a default value of 0.0
             margin_levels = {
                 "margin3": float(db_match_data.get("margin3", 0.0)),
                 "margin5": float(db_match_data.get("margin5", 0.0)),
@@ -103,11 +102,11 @@ def task(db_resp, api_resp, coin_limits, data):
             with purchase_lock:
                 for margin_key, margin_value in margin_levels.items():
                     # Check if the daily limit allows for this margin-level purchase
-                    if coin_limits[margin_key] > 0 and api_last_price >= margin_value:
+                    if coin_limits.get(margin_key + 'count', 0) > 0 and api_last_price >= margin_value:
                         logging.info(f"Purchasing {ele} at {margin_key} margin.")
                         update_margin_status(db_match_data['symbol'], margin_key)
                         update_coin_limit(margin_key)
-                        coin_limits[margin_key] -= 1  # Update in-memory limit count
+                        coin_limits[margin_key + 'count'] -= 1  # Update in-memory limit count
                         break  # Stop after purchasing at the first qualifying margin
 
     except Exception as e:
