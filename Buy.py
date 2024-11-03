@@ -124,6 +124,7 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                         logging.info(f"Purchasing {ele} at 3% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar3')
                         trading_summary["sum_mar3"] += 1
+                        coin_limits["margin3count"] -= 1  # Decrement the daily limit for margin3 purchases
                     continue
 
                 # Check and purchase at margin5 if limit not reached
@@ -132,6 +133,7 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                         logging.info(f"Purchasing {ele} at 5% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar5')
                         trading_summary["sum_mar5"] += 1
+                        coin_limits["margin5count"] -= 1  # Decrement the daily limit for margin5 purchases
                     continue
 
                 # Check and purchase at margin10 if limit not reached
@@ -140,6 +142,7 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                         logging.info(f"Purchasing {ele} at 10% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar10')
                         trading_summary["sum_mar10"] += 1
+                        coin_limits["margin10count"] -= 1  # Decrement the daily limit for margin10 purchases
                     continue
 
                 # Check and purchase at margin20 if limit not reached
@@ -148,6 +151,7 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                         logging.info(f"Purchasing {ele} at 20% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar20')
                         trading_summary["sum_mar20"] += 1
+                        coin_limits["margin20count"] -= 1  # Decrement the daily limit for margin20 purchases
 
     except Exception as e:
         logging.error(f"Error in task processing {ele}: {e}")
