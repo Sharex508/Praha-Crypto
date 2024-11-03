@@ -81,6 +81,7 @@ def get_results():
     finally:
         cursor.close()
         connection.close()
+
 def task(db_resp, api_resp, coin_limits, data):
     """Process each chunk of data and make purchases based on the margin logic."""
     try:
@@ -92,26 +93,30 @@ def task(db_resp, api_resp, coin_limits, data):
             if not api_match_data:
                 continue
 
-            api_last_price = float(api_match_data['price'] or 0.0)
+            try:
+                api_last_price = float(api_match_data['price'] or 0.0)
+            except ValueError:
+                logging.error(f"Invalid price for {ele}. Skipping.")
+                continue
 
-            # Ensure that each margin level exists, or provide a default value of 0.0
-            margin_levels = {
-                "margin3": float(db_match_data.get("margin3", 0.0)),
-                "margin5": float(db_match_data.get("margin5", 0.0)),
-                "margin10": float(db_match_data.get("margin10", 0.0)),
-                "margin20": float(db_match_data.get("margin20", 0.0))
-            }
+            # Ensure that margin values are converted to float safely
+            margin_levels = {}
+            for margin in ["margin3", "margin5", "margin10", "margin20"]:
+                try:
+                    margin_levels[margin] = float(db_match_data.get(margin, 0.0))
+                except ValueError:
+                    logging.error(f"Invalid {margin} value for {ele}. Skipping.")
+                    continue
 
             # Use lock to ensure consistent access to the coin limits
             with purchase_lock:
                 for margin_key, margin_value in margin_levels.items():
-                    # Check if the daily limit allows for this margin-level purchase
-                    if coin_limits.get(margin_key + 'count', 0) > 0 and api_last_price >= margin_value:
+                    if coin_limits[margin_key] > 0 and api_last_price >= margin_value:
                         logging.info(f"Purchasing {ele} at {margin_key} margin.")
                         update_margin_status(db_match_data['symbol'], margin_key)
                         update_coin_limit(margin_key)
-                        coin_limits[margin_key + 'count'] -= 1  # Update in-memory limit count
-                        break  # Stop after purchasing at the first qualifying margin
+                        coin_limits[margin_key] -= 1  # Update local limit count
+                        break
 
     except Exception as e:
         logging.error(f"Error in task processing {ele}: {e}")
