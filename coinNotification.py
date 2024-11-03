@@ -48,16 +48,14 @@ def get_data_from_wazirx(filter='USDT'):
     return [d for d in data if filter in d['symbol'] and 'price' in d]
 
 def send_notification(symbol, initial_price, current_price, direction, percentage_change):
-    notisend({
-        "symbol": symbol,
-        "side": direction,
-        "type": "limit",
-        "initial_price": float(initial_price),
-        "purchasing_price": float(current_price),
-        "percentage_change": float(percentage_change),
-        "quantity": float(1 / current_price)
-    })
-    logging.info(f"Notification sent for {symbol}: {direction} {percentage_change}%")
+    message = f"Coin: {symbol}\n" \
+              f"Purchase Price: {initial_price}\n" \
+              f"Current Price: {current_price}\n" \
+              f"{direction.capitalize()} of {percentage_change:.2f}%"
+
+    # Assuming your notisend function sends a message string
+    notisend(message)
+    logging.info(f"Notification sent: {message}")
 
 def update_high_price(symbol, new_high_price):
     connection, cursor = get_db_connection()
