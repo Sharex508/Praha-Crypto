@@ -4,168 +4,222 @@ import requests
 from concurrent.futures import ThreadPoolExecutor
 import logging
 
-# Set up logging
 logging.basicConfig(level=logging.DEBUG)
-
-# Global purchase limit
-PURCHASE_LIMIT = 20
-purchased_count = 0  # Counter for the total number of coins purchased
 
 def get_db_connection():
     """Establish and return a connection to the PostgreSQL database."""
-    try:
-        connection = psycopg2.connect(
-            user="postgres",
-            password="Harsha508",
-            host="harshacry.c3cca44au3xf.ap-south-1.rds.amazonaws.com",
-            port="5432",
-            database="HarshaCry"
-        )
-        logging.info("Database connection established.")
-        return connection
-    except Exception as e:
-        logging.error(f"Error connecting to database: {e}")
-        return None
-
-def fetch_all_data_from_table(table_name):
-    """Fetch and display all data from a specific table."""
-    connection = get_db_connection()
-    if connection is None:
-        logging.error("Failed to connect to database.")
-        return []
-
-    try:
-        with connection:
-            with connection.cursor() as cursor:
-                # Fetch all rows from the specified table where status is not 1 (non-purchased)
-                cursor.execute(f"SELECT * FROM {table_name} WHERE status != '1'")
-                rows = cursor.fetchall()
-                columns = [desc[0] for desc in cursor.description]
-                data = [dict(zip(columns, row)) for row in rows]
-                
-                logging.debug(f"DEBUG - Fetched {len(data)} records from table '{table_name}'")
-                return data
-    except Exception as e:
-        logging.error(f"Error fetching data from table {table_name}: {e}")
-        return []
-    finally:
-        connection.close()
-        logging.info("Database connection closed.")
+    connection = psycopg2.connect(user="postgres",
+                                  password="Harsha508",
+                                  host="harshacry.c3cca44au3xf.ap-south-1.rds.amazonaws.com",
+                                  port="5432",
+                                  database="HarshaCry")
+    return connection, connection.cursor()
 
 def get_data_from_wazirx(filter='USDT'):
     """Fetch price data from WazirX API."""
+    data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
+    resp = [d for d in data if filter in d['symbol'] and 'price' in d]
+    logging.debug(f"DEBUG - Fetched {len(resp)} symbols from API with filter '{filter}'.")
+    return resp
+
+def get_coin_limits_and_trading_sums():
+    """Fetch coin limits and trading sums from the database."""
+    connection, cursor = get_db_connection()
     try:
-        data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
-        filtered_data = [d for d in data if filter in d['symbol']]
-        logging.debug(f"DEBUG - Fetched {len(filtered_data)} symbols from API with filter '{filter}'.")
-        return filtered_data
+        # Get Coinnumber limits
+        sql_limits = "SELECT margin3count, margin5count, margin10count, margin20count, amount FROM Coinnumber"
+        cursor.execute(sql_limits)
+        limits = cursor.fetchone()
+
+        coin_limits = {
+            "margin3count": int(float(limits[0] or 0)),
+            "margin5count": int(float(limits[1] or 0)),
+            "margin10count": int(float(limits[2] or 0)),
+            "margin20count": int(float(limits[3] or 0)),
+            "amount": float(limits[4] or 0.0)
+        }
+
+        # Get sum of mar3, mar5, mar10, mar20 from trading table where status != '1' (non-purchased coins)
+        sql_sum = """
+        SELECT SUM(CASE WHEN mar3 THEN 1 ELSE 0 END) AS sum_mar3,
+               SUM(CASE WHEN mar5 THEN 1 ELSE 0 END) AS sum_mar5,
+               SUM(CASE WHEN mar10 THEN 1 ELSE 0 END) AS sum_mar10,
+               SUM(CASE WHEN mar20 THEN 1 ELSE 0 END) AS sum_mar20
+        FROM trading
+        WHERE status != '1'
+        """
+        cursor.execute(sql_sum)
+        trading_sums = cursor.fetchone()
+
+        trading_summary = {
+            "sum_mar3": int(trading_sums[0] or 0),
+            "sum_mar5": int(trading_sums[1] or 0),
+            "sum_mar10": int(trading_sums[2] or 0),
+            "sum_mar20": int(trading_sums[3] or 0)
+        }
+
+        logging.debug(f"DEBUG - Coin Limits: {coin_limits}, Trading Sums (non-purchased): {trading_summary}")
+        return coin_limits, trading_summary
     except Exception as e:
-        logging.error(f"Error fetching data from WazirX: {e}")
+        logging.error(f"Error fetching coin limits and trading sums: {e}")
+        return None, None
+    finally:
+        cursor.close()
+        connection.close()
+
+def get_results():
+    """Fetch non-purchased trading records from the database."""
+    connection, cursor = get_db_connection()
+    try:
+        sql = """
+        SELECT symbol, intialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
+               mar3, mar5, mar10, mar20
+        FROM trading
+        WHERE status != '1'
+        """
+        cursor.execute(sql)
+        results = cursor.fetchall()
+
+        keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
+                'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20')
+
+        data = [dict(zip(keys, obj)) for obj in results]
+
+        logging.debug(f"DEBUG - Fetched {len(data)} non-purchased trading records from the database.")
+        return data
+    except Exception as e:
+        logging.error(f"Error fetching results: {e}")
         return []
+    finally:
+        cursor.close()
+        connection.close()
 
-def task(db_resp, api_resp):
-    """Process the data and make purchases based on the highest qualifying margin."""
-    global purchased_count  # To track the number of purchases
+def task(db_resp, api_resp, coin_limits, trading_summary, data):
+    """Process each chunk of data and make purchases based on the margin logic."""
+    try:
+        for ele in data:
+            db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
+            if not db_match_data:
+                logging.debug(f"DEBUG - Symbol {ele} not found in DB data.")
+                continue
+            api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
+            if not api_match_data:
+                logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
+                continue
 
-    for coin in db_resp:
-        # Stop if we reach the purchase limit
-        if purchased_count >= PURCHASE_LIMIT:
-            logging.info(f"Purchase limit of {PURCHASE_LIMIT} reached. Stopping purchases.")
-            return
+            api_last_price = float(api_match_data['price'] or 0.0)
+            db_price = float(db_match_data.get("intialPrice") or 0.0)
 
-        symbol = coin["symbol"]
-        api_data = next((item for item in api_resp if item["symbol"] == symbol), None)
+            logging.debug(f"\nProcessing {ele}\nLast Price: {api_last_price}\nDB Price: {db_price}\nCoin Limits: {coin_limits}")
 
-        if not api_data:
-            logging.debug(f"DEBUG - Symbol {symbol} not found in API data.")
-            continue
+            # Convert the margin values from string to float before comparison
+            margin3 = float(db_match_data["margin3"] or 0.0)
+            margin5 = float(db_match_data["margin5"] or 0.0)
+            margin10 = float(db_match_data["margin10"] or 0.0)
+            margin20 = float(db_match_data["margin20"] or 0.0)
 
-        api_last_price = float(api_data['price'])
-        db_price = float(coin.get("intialprice", 0))
+            # Check and purchase at margin3 if limit not reached
+            if trading_summary["sum_mar3"] < coin_limits["margin3count"]:
+                if api_last_price >= margin3:
+                    logging.debug(f"DEBUG - Purchasing {ele} at 3% margin. Current count: {trading_summary['sum_mar3']} out of {coin_limits['margin3count']}")
+                    update_margin_status(db_match_data['symbol'], 'mar3')
+                    trading_summary["sum_mar3"] += 1
+                else:
+                    logging.debug(f"DEBUG - {ele} did not meet the margin3 condition. Last price: {api_last_price}, Required: {margin3}")
+                continue
 
-        logging.debug(f"Processing {symbol} - Last Price: {api_last_price}, DB Price: {db_price}")
+            # Check and purchase at margin5 if limit not reached
+            if trading_summary["sum_mar5"] < coin_limits["margin5count"]:
+                if api_last_price >= margin5:
+                    logging.debug(f"DEBUG - Purchasing {ele} at 5% margin. Current count: {trading_summary['sum_mar5']} out of {coin_limits['margin5count']}")
+                    update_margin_status(db_match_data['symbol'], 'mar5')
+                    trading_summary["sum_mar5"] += 1
+                else:
+                    logging.debug(f"DEBUG - {ele} did not meet the margin5 condition. Last price: {api_last_price}, Required: {margin5}")
+                continue
 
-        # Margin logic for mar3, mar5, mar10, mar20
-        margin3 = float(coin.get("margin3", 0))
-        margin5 = float(coin.get("margin5", 0))
-        margin10 = float(coin.get("margin10", 0))
-        margin20 = float(coin.get("margin20", 0))
+            # Check and purchase at margin10 if limit not reached
+            if trading_summary["sum_mar10"] < coin_limits["margin10count"]:
+                if api_last_price >= margin10:
+                    logging.debug(f"DEBUG - Purchasing {ele} at 10% margin. Current count: {trading_summary['sum_mar10']} out of {coin_limits['margin10count']}")
+                    update_margin_status(db_match_data['symbol'], 'mar10')
+                    trading_summary["sum_mar10"] += 1
+                else:
+                    logging.debug(f"DEBUG - {ele} did not meet the margin10 condition. Last price: {api_last_price}, Required: {margin10}")
+                continue
 
-        # Keep track of the highest margin
-        highest_margin_level = None
-        highest_margin = 0
-
-        # Check which margin levels qualify
-        if not coin['mar3'] and api_last_price >= margin3:
-            highest_margin_level = 'mar3'
-            highest_margin = margin3
-        if not coin['mar5'] and api_last_price >= margin5:
-            highest_margin_level = 'mar5'
-            highest_margin = margin5
-        if not coin['mar10'] and api_last_price >= margin10:
-            highest_margin_level = 'mar10'
-            highest_margin = margin10
-        if not coin['mar20'] and api_last_price >= margin20:
-            highest_margin_level = 'mar20'
-            highest_margin = margin20
-
-        # Purchase the coin at the highest qualifying margin
-        if highest_margin_level:
-            logging.debug(f"Purchasing {symbol} at {highest_margin_level} margin. Last price: {api_last_price}, Required: {highest_margin}")
-            purchased_count += 1
-            update_margin_status(coin['symbol'], highest_margin_level)
-
-        logging.debug(f"DEBUG - {symbol} processed, total purchased: {purchased_count}")
+            # Check and purchase at margin20 without limit
+            if api_last_price >= margin20:
+                logging.debug(f"DEBUG - Purchasing {ele} at 20% margin. No limit on purchases.")
+                update_margin_status(db_match_data['symbol'], 'mar20')
+                trading_summary["sum_mar20"] += 1
+            else:
+                logging.debug(f"DEBUG - {ele} did not meet the margin20 condition. Last price: {api_last_price}, Required: {margin20}")
+    
+    except Exception as e:
+        logging.error(f"Error in task processing {ele}: {e}")
 
 def update_margin_status(symbol, margin_level):
     """Update the margin status in the database for a purchased coin."""
-    connection = get_db_connection()
-    if connection is None:
-        logging.error("Error: Failed to connect to the database.")
-        return
+    connection, cursor = get_db_connection()
     try:
-        # Update the margin level to TRUE and mark the status as purchased (status = '1')
-        sql_update = f"UPDATE trading SET {margin_level} = TRUE, status = '1' WHERE symbol = %s"
-        with connection.cursor() as cursor:
-            cursor.execute(sql_update, (symbol,))
-            connection.commit()
-        logging.info(f"Updated {symbol} with margin level {margin_level}.")
+        sql_update_trading = f"UPDATE trading SET {margin_level} = TRUE, status = '1' WHERE symbol = %s"
+        cursor.execute(sql_update_trading, (symbol,))
+        connection.commit()
+        logging.info(f"{symbol} purchased at {margin_level}. Status updated to 1.")
     except Exception as e:
         logging.error(f"Error updating margin status for {symbol}: {e}")
     finally:
+        cursor.close()
         connection.close()
 
+def get_diff_of_db_api_values(api_resp):
+    """Get the differences between DB and API values and pre-calculate necessary limits and sums."""
+    db_resp = get_results()
+    coin_limits, trading_summary = get_coin_limits_and_trading_sums()
+    
+    if not db_resp or not coin_limits or not trading_summary:
+        logging.error("Error: Failed to retrieve necessary data from the database.")
+        return None, None, None
+
+    logging.debug("DEBUG - Completed data retrieval and pre-calculations.")
+    return db_resp, coin_limits, trading_summary
+
 def show():
-    """Main function to initiate data fetching and processing."""
-    global purchased_count  # Reset the purchase count at the beginning
+    """Main loop to fetch data, process coins, and handle iterations."""
+    while True:
+        try:
+            logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    while purchased_count < PURCHASE_LIMIT:
-        logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            # Get API data
+            api_resp = get_data_from_wazirx()
+            if not api_resp:
+                logging.error("Failed to retrieve data from WazirX API.")
+                time.sleep(60)
+                continue
 
-        # Get API data
-        api_resp = get_data_from_wazirx()
-        if not api_resp:
-            logging.error("Failed to retrieve data from WazirX API.")
+            # Get DB and pre-calculated values
+            db_resp, coin_limits, trading_summary = get_diff_of_db_api_values(api_resp)
+            if not db_resp:
+                time.sleep(60)
+                continue
+
+            # Prepare symbols for processing
+            dicts_data = [obj['symbol'] for obj in db_resp]
+            chunk_size = min(20, len(dicts_data))
+            chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
+
+            logging.debug(f"DEBUG - Total Chunks Created: {len(chunks)}. Total Records: {len(dicts_data)}")
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                for idx, chunk in enumerate(chunks):
+                    logging.debug(f"DEBUG - Submitting chunk {idx + 1}/{len(chunks)} with {len(chunk)} records")
+                    executor.submit(task, db_resp, api_resp, coin_limits, trading_summary, chunk)
+
             time.sleep(60)
-            continue
-
-        # Get DB data
-        db_resp = fetch_all_data_from_table("trading")
-        if not db_resp:
-            logging.error("No data retrieved from the database.")
+        except Exception as e:
+            logging.error(f"An error occurred: {e}")
             time.sleep(60)
-            continue
-
-        # Process the data
-        task(db_resp, api_resp)
-
-        # Check if the purchase limit has been reached
-        if purchased_count >= PURCHASE_LIMIT:
-            logging.info(f"Purchase limit of {PURCHASE_LIMIT} coins reached. Exiting loop.")
-            break
-
-        # Wait for 60 seconds before the next iteration
-        time.sleep(60)
 
 if __name__ == "__main__":
     show()
