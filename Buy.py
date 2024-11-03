@@ -1,3 +1,4 @@
+# Buy.py
 import time
 import psycopg2
 import requests
@@ -21,7 +22,7 @@ def get_db_connection():
     return connection, connection.cursor()
 
 def get_data_from_wazirx(filter='USDT'):
-    """Fetch price data from WazirX API."""
+    """Fetch price data from Binance API."""
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
     resp = [d for d in data if filter in d['symbol'] and 'price' in d]
     return resp
@@ -83,7 +84,7 @@ def get_results():
         cursor.execute(sql)
         results = cursor.fetchall()
 
-        keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
+        keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20',
                 'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20')
 
         data = [dict(zip(keys, obj)) for obj in results]
@@ -120,7 +121,7 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
             with purchase_lock:
                 # Check and purchase at margin3 if limit not reached
                 if trading_summary["sum_mar3"] < coin_limits["margin3count"]:
-                    if api_last_price >= margin3:
+                    if api_last_price >= margin3 and not db_match_data['mar3']:
                         logging.info(f"Purchasing {ele} at 3% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar3')
                         trading_summary["sum_mar3"] += 1
@@ -128,7 +129,7 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
 
                 # Check and purchase at margin5 if limit not reached
                 if trading_summary["sum_mar5"] < coin_limits["margin5count"]:
-                    if api_last_price >= margin5:
+                    if api_last_price >= margin5 and not db_match_data['mar5']:
                         logging.info(f"Purchasing {ele} at 5% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar5')
                         trading_summary["sum_mar5"] += 1
@@ -136,7 +137,7 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
 
                 # Check and purchase at margin10 if limit not reached
                 if trading_summary["sum_mar10"] < coin_limits["margin10count"]:
-                    if api_last_price >= margin10:
+                    if api_last_price >= margin10 and not db_match_data['mar10']:
                         logging.info(f"Purchasing {ele} at 10% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar10')
                         trading_summary["sum_mar10"] += 1
@@ -144,7 +145,7 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
 
                 # Check and purchase at margin20 if limit not reached
                 if trading_summary["sum_mar20"] < coin_limits["margin20count"]:
-                    if api_last_price >= margin20:
+                    if api_last_price >= margin20 and not db_match_data['mar20']:
                         logging.info(f"Purchasing {ele} at 20% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar20')
                         trading_summary["sum_mar20"] += 1
@@ -170,7 +171,7 @@ def get_diff_of_db_api_values(api_resp):
     """Get the differences between DB and API values and pre-calculate necessary limits and sums."""
     db_resp = get_results()
     coin_limits, trading_summary = get_coin_limits_and_trading_sums()
-    
+
     if not db_resp or not coin_limits or not trading_summary:
         logging.error("Error: Failed to retrieve necessary data from the database.")
         return None, None, None
@@ -186,7 +187,7 @@ def show():
             # Get API data
             api_resp = get_data_from_wazirx()
             if not api_resp:
-                logging.error("Failed to retrieve data from WazirX API.")
+                logging.error("Failed to retrieve data from Binance API.")
                 time.sleep(60)
                 continue
 
