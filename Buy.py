@@ -177,47 +177,42 @@ def update_margin_status(symbol, margin_level):
     finally:
         cursor.close()
         connection.close()
-
+        
 def show():
-    """Main loop to fetch data, process coins, and handle iterations."""
-    while True:
-        try:
-            logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    """Execute the buying logic once and return."""
+    try:
+        logging.info(f"Executing buying logic at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-            # Get API data
-            api_resp = get_data_from_wazirx()
-            if not api_resp:
-                logging.error("Failed to retrieve data from Binance API.")
-                time.sleep(60)
-                continue
+        # Get API data
+        api_resp = get_data_from_wazirx()
+        if not api_resp:
+            logging.error("Failed to retrieve data from Binance API.")
+            return
 
-            # Get coin limits and trading sums
-            coin_limits = get_coin_limits()
-            trading_summary = get_trading_sums()
-            if not coin_limits or not trading_summary:
-                logging.error("Error: Failed to retrieve necessary data from the database.")
-                time.sleep(60)
-                continue
+        # Get coin limits and trading sums
+        coin_limits = get_coin_limits()
+        trading_summary = get_trading_sums()
+        if not coin_limits or not trading_summary:
+            logging.error("Error: Failed to retrieve necessary data from the database.")
+            return
 
-            # Get DB data
-            db_resp = get_results()
-            if not db_resp:
-                time.sleep(60)
-                continue
+        # Get DB data
+        db_resp = get_results()
+        if not db_resp:
+            return
 
-            # Prepare symbols for processing
-            dicts_data = [obj['symbol'] for obj in db_resp]
-            chunk_size = min(20, len(dicts_data))
-            chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
+        # Prepare symbols for processing
+        dicts_data = [obj['symbol'] for obj in db_resp]
+        chunk_size = min(20, len(dicts_data))
+        chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
 
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                for chunk in chunks:
-                    executor.submit(task, db_resp, api_resp, coin_limits, trading_summary, chunk)
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            for chunk in chunks:
+                executor.submit(task, db_resp, api_resp, coin_limits, trading_summary, chunk)
 
-            time.sleep(60)
-        except Exception as e:
-            logging.error(f"An error occurred: {e}")
-            time.sleep(60)
+    except Exception as e:
+        logging.error(f"An error occurred in show(): {e}")
+
 
 if __name__ == "__main__":
     show()
