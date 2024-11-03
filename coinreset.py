@@ -30,21 +30,21 @@ def truncate_tables():
         logging.error(f"Error truncating tables: {e}")
 
 def create_tables():
-    """Create the trading and Coinnumber tables if they do not exist."""
+    """Create the trading and Coinnumber tables with correct data types."""
     try:
         with get_database_connection() as connection:
             with connection.cursor() as cursor:
-                # Create trading table
+                # Create trading table with FLOAT data types for margin columns
                 create_trading_table_query = '''
                     CREATE TABLE IF NOT EXISTS trading (
                         symbol          TEXT    NOT NULL,
-                        intialPrice     TEXT,
-                        highPrice       TEXT,
-                        lastPrice       TEXT,
-                        margin3         TEXT,
-                        margin5         TEXT,
-                        margin10        TEXT,
-                        margin20        TEXT,
+                        intialPrice     FLOAT,
+                        highPrice       FLOAT,
+                        lastPrice       FLOAT,
+                        margin3         FLOAT,
+                        margin5         FLOAT,
+                        margin10        FLOAT,
+                        margin20        FLOAT,
                         purchasePrice   TEXT,
                         mar3            BOOLEAN DEFAULT FALSE,
                         mar5            BOOLEAN DEFAULT FALSE,
@@ -55,7 +55,7 @@ def create_tables():
                     );
                 '''
                 cursor.execute(create_trading_table_query)
-                logging.info("Table 'trading' created successfully.")
+                logging.info("Table 'trading' created with FLOAT types for margins.")
 
                 # Create Coinnumber table with sfid as primary key
                 create_coinnumber_table_query = '''
@@ -74,7 +74,7 @@ def create_tables():
         logging.error(f"Error creating tables: {error}")
 
 def getall_data(filter='USDT'):
-    """Fetch trading data from Binance API."""
+    """Fetch trading data from Binance API and calculate margin values."""
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
     trading_data = [
         {
@@ -86,7 +86,7 @@ def getall_data(filter='USDT'):
             'margin5': float(d['price']) * 1.05,
             'margin10': float(d['price']) * 1.10,
             'margin20': float(d['price']) * 1.20,
-            'purchasePrice': ""
+            'purchasePrice': None  # Set as None to indicate no initial purchase price
         }
         for d in data if filter in d['symbol']
     ]
