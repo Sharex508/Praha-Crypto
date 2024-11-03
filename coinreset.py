@@ -13,10 +13,10 @@ def get_database_connection():
     """Create and return a PostgreSQL database connection."""
     return psycopg2.connect(
         user="postgres",
-        password="YourPassword",      # Replace with your actual password
-        host="YourHost",              # Replace with your actual host
+        password="Harsha508",
+        host="harshacry.c3cca44au3xf.ap-south-1.rds.amazonaws.com",
         port="5432",
-        database="YourDatabase",      # Replace with your actual database name
+        database="HarshaCry",      # Replace with your actual database name
     )
 
 def truncate_tables():
