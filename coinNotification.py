@@ -26,13 +26,29 @@ def get_active_trades():
         sql = "SELECT * FROM trading WHERE status = '1'"
         cursor.execute(sql)
         results = cursor.fetchall()
-        # Corrected keys to match the columns in the trading table
+        # Corrected keys to match the columns in the trading table in exact order
         keys = (
-            'symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5',
-            'margin10', 'margin20', 'purchasePrice',
-            'mar3', 'mar5', 'mar10', 'mar20',
-            'created_at', 'status',
-            'last_notified_percentage', 'last_notified_decrease_percentage'
+            'symbol',                   # text NOT NULL
+            'intialprice',              # text
+            'highprice',                # text
+            'lastprice',                # text
+            'margin3',                  # text
+            'margin5',                  # text
+            'margin10',                 # text
+            'margin20',                 # text
+            'purchaseprice',            # text
+            'margin3count',             # text
+            'margin5count',             # text
+            'margin10count',            # text
+            'margin20count',            # text
+            'mar3',                     # boolean DEFAULT false
+            'mar5',                     # boolean DEFAULT false
+            'mar10',                    # boolean DEFAULT false
+            'mar20',                    # boolean DEFAULT false
+            'created_at',               # text
+            'status',                   # text DEFAULT '0'::text
+            'last_notified_decrease_percentage',  # double precision DEFAULT 0.0
+            'last_notified_percentage'           # double precision DEFAULT 0.0
         )
         data = [dict(zip(keys, obj)) for obj in results]
         return data
@@ -60,11 +76,11 @@ def send_notification(symbol, initial_price, current_price, direction, percentag
 def update_high_price(symbol, new_high_price):
     connection, cursor = get_db_connection()
     try:
-        sql = "UPDATE trading SET highPrice = %s, last_notified_decrease_percentage = %s WHERE symbol = %s"
+        sql = "UPDATE trading SET highprice = %s, last_notified_decrease_percentage = %s WHERE symbol = %s"
         cursor.execute(sql, (str(new_high_price), 0.0, symbol))
         connection.commit()
     except Exception as e:
-        logging.error(f"Error updating highPrice for {symbol}: {e}")
+        logging.error(f"Error updating highprice for {symbol}: {e}")
     finally:
         cursor.close()
         connection.close()
@@ -99,10 +115,10 @@ def notify_price_increase(api_resp):
     for trade in db_resp:
         try:
             symbol = trade['symbol']
-            initial_price = Decimal(trade['intialPrice'])
+            initial_price = Decimal(trade['intialprice'])
             last_notified = Decimal(trade.get('last_notified_percentage') or '0.0')
             last_notified_decrease = Decimal(trade.get('last_notified_decrease_percentage') or '0.0')
-            high_price = Decimal(trade['highPrice'])
+            high_price = Decimal(trade['highprice'])
 
             matching_api_data = next((item for item in api_resp if item["symbol"] == symbol), None)
             if matching_api_data:
