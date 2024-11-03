@@ -25,40 +25,34 @@ def get_data_from_wazirx(filter='USDT'):
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
     return [d for d in data if filter in d['symbol'] and 'price' in d]
 
-def get_coin_limits_and_trading_sums():
-    """Fetch coin limits and trading sums from the database."""
+def get_coin_limits():
+    """Fetch and return daily coin limits from the Coinnumber table."""
     connection, cursor = get_db_connection()
     try:
-        cursor.execute("SELECT margin3count, margin5count, margin10count, margin20count, amount FROM Coinnumber")
+        cursor.execute("SELECT margin3count, margin5count, margin10count, margin20count FROM Coinnumber")
         limits = cursor.fetchone()
-        coin_limits = {
+        return {
             "margin3count": int(limits[0] or 0),
             "margin5count": int(limits[1] or 0),
             "margin10count": int(limits[2] or 0),
-            "margin20count": int(limits[3] or 0),
-            "amount": float(limits[4] or 0.0)
+            "margin20count": int(limits[3] or 0)
         }
-
-        cursor.execute("""
-            SELECT SUM(CASE WHEN mar3 THEN 1 ELSE 0 END) AS sum_mar3,
-                   SUM(CASE WHEN mar5 THEN 1 ELSE 0 END) AS sum_mar5,
-                   SUM(CASE WHEN mar10 THEN 1 ELSE 0 END) AS sum_mar10,
-                   SUM(CASE WHEN mar20 THEN 1 ELSE 0 END) AS sum_mar20
-            FROM trading
-            WHERE status != '1'
-        """)
-        trading_sums = cursor.fetchone()
-        trading_summary = {
-            "sum_mar3": int(trading_sums[0] or 0),
-            "sum_mar5": int(trading_sums[1] or 0),
-            "sum_mar10": int(trading_sums[2] or 0),
-            "sum_mar20": int(trading_sums[3] or 0)
-        }
-
-        return coin_limits, trading_summary
     except Exception as e:
-        logging.error(f"Error fetching coin limits and trading sums: {e}")
-        return None, None
+        logging.error(f"Error fetching coin limits: {e}")
+        return None
+    finally:
+        cursor.close()
+        connection.close()
+
+def update_coin_limit(margin_level):
+    """Decrement the specified margin count in Coinnumber table."""
+    connection, cursor = get_db_connection()
+    try:
+        sql_update = f"UPDATE Coinnumber SET {margin_level} = {margin_level} - 1 WHERE {margin_level} > 0"
+        cursor.execute(sql_update)
+        connection.commit()
+    except Exception as e:
+        logging.error(f"Error updating coin limit for {margin_level}: {e}")
     finally:
         cursor.close()
         connection.close()
@@ -74,12 +68,9 @@ def get_results():
             WHERE status != '1'
         """)
         results = cursor.fetchall()
-
         keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20', 
                 'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20')
-
-        data = [dict(zip(keys, obj)) for obj in results]
-        return data
+        return [dict(zip(keys, obj)) for obj in results]
     except Exception as e:
         logging.error(f"Error fetching results: {e}")
         return []
@@ -87,54 +78,40 @@ def get_results():
         cursor.close()
         connection.close()
 
-def task(db_resp, api_resp, coin_limits, trading_summary, data):
+def task(db_resp, api_resp, coin_limits, data):
     """Process each chunk of data and make purchases based on the margin logic."""
-    for ele in data:
-        db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
-        if not db_match_data:
-            logging.debug(f"DEBUG - Symbol {ele} not found in DB data.")
-            continue
-
-        api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
-        if not api_match_data:
-            logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
-            continue
-
-        # Try to parse all fields, with a fallback to 0.0 if conversion fails
-        try:
-            api_last_price = float(api_match_data['price'])
-            margin3 = float(db_match_data["margin3"]) if db_match_data["margin3"] else 0.0
-            margin5 = float(db_match_data["margin5"]) if db_match_data["margin5"] else 0.0
-            margin10 = float(db_match_data["margin10"]) if db_match_data["margin10"] else 0.0
-            margin20 = float(db_match_data["margin20"]) if db_match_data["margin20"] else 0.0
-        except (ValueError, TypeError) as e:
-            logging.error(f"Invalid data for {ele}: {e}")
-            continue
-
-        with purchase_lock:
-            # Margin checks with limit enforcement
-            if trading_summary["sum_mar3"] < coin_limits["margin3count"] and api_last_price >= margin3:
-                logging.info(f"Purchasing {ele} at 3% margin.")
-                update_margin_status(db_match_data['symbol'], 'mar3')
-                trading_summary["sum_mar3"] += 1
+    try:
+        for ele in data:
+            db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
+            if not db_match_data:
+                continue
+            api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
+            if not api_match_data:
                 continue
 
-            if trading_summary["sum_mar5"] < coin_limits["margin5count"] and api_last_price >= margin5:
-                logging.info(f"Purchasing {ele} at 5% margin.")
-                update_margin_status(db_match_data['symbol'], 'mar5')
-                trading_summary["sum_mar5"] += 1
-                continue
+            api_last_price = float(api_match_data['price'] or 0.0)
 
-            if trading_summary["sum_mar10"] < coin_limits["margin10count"] and api_last_price >= margin10:
-                logging.info(f"Purchasing {ele} at 10% margin.")
-                update_margin_status(db_match_data['symbol'], 'mar10')
-                trading_summary["sum_mar10"] += 1
-                continue
+            # Use .get() to safely access margin levels, defaulting to 0.0 if any margin key is missing
+            margin_levels = {
+                "margin3": float(db_match_data.get("margin3", 0.0)),
+                "margin5": float(db_match_data.get("margin5", 0.0)),
+                "margin10": float(db_match_data.get("margin10", 0.0)),
+                "margin20": float(db_match_data.get("margin20", 0.0))
+            }
 
-            if trading_summary["sum_mar20"] < coin_limits["margin20count"] and api_last_price >= margin20:
-                logging.info(f"Purchasing {ele} at 20% margin.")
-                update_margin_status(db_match_data['symbol'], 'mar20')
-                trading_summary["sum_mar20"] += 1
+            # Use lock to ensure consistent access to the coin limits
+            with purchase_lock:
+                for margin_key, margin_value in margin_levels.items():
+                    # Check if the daily limit allows for this margin-level purchase
+                    if coin_limits[margin_key] > 0 and api_last_price >= margin_value:
+                        logging.info(f"Purchasing {ele} at {margin_key} margin.")
+                        update_margin_status(db_match_data['symbol'], margin_key)
+                        update_coin_limit(margin_key)
+                        coin_limits[margin_key] -= 1  # Update in-memory limit count
+                        break  # Stop after purchasing at the first qualifying margin
+
+    except Exception as e:
+        logging.error(f"Error in task processing {ele}: {e}")
 
 def update_margin_status(symbol, margin_level):
     """Update the margin status in the database for a purchased coin."""
@@ -151,30 +128,43 @@ def update_margin_status(symbol, margin_level):
 
 def show():
     """Main loop to fetch data, process coins, and handle iterations."""
+    coin_limits = get_coin_limits()  # Retrieve coin limits once per day
+    last_refresh_time = time.time()  # Store the last refresh time for daily limit
+
     while True:
-        logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        api_resp = get_data_from_wazirx()
-        if not api_resp:
-            logging.error("Failed to retrieve data from WazirX API.")
+        try:
+            # Refresh coin limits once per day
+            if time.time() - last_refresh_time > 86400:  # 86400 seconds = 24 hours
+                coin_limits = get_coin_limits()
+                last_refresh_time = time.time()
+
+            logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+            # Get API data
+            api_resp = get_data_from_wazirx()
+            if not api_resp:
+                logging.error("Failed to retrieve data from WazirX API.")
+                time.sleep(60)
+                continue
+
+            # Get DB data for processing
+            db_resp = get_results()
+            if not db_resp:
+                time.sleep(60)
+                continue
+
+            dicts_data = [obj['symbol'] for obj in db_resp]
+            chunk_size = min(20, len(dicts_data))
+            chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                for chunk in chunks:
+                    executor.submit(task, db_resp, api_resp, coin_limits, chunk)
+
+            time.sleep(60)  # Wait before the next iteration
+        except Exception as e:
+            logging.error(f"An error occurred: {e}")
             time.sleep(60)
-            continue
-
-        db_resp, coin_limits, trading_summary = get_coin_limits_and_trading_sums()
-        db_data = get_results()
-
-        if not db_data or not coin_limits or not trading_summary:
-            time.sleep(60)
-            continue
-
-        symbols = [obj['symbol'] for obj in db_data]
-        chunk_size = 20
-        chunks = [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
-
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            for chunk in chunks:
-                executor.submit(task, db_data, api_resp, coin_limits, trading_summary, chunk)
-
-        time.sleep(60)
 
 if __name__ == "__main__":
     show()
