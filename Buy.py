@@ -57,32 +57,6 @@ def update_coin_limit(margin_level):
         cursor.close()
         connection.close()
 
-def get_trading_sums():
-    """Fetch sum of purchases from trading table for each margin level where status != '1'."""
-    connection, cursor = get_db_connection()
-    try:
-        cursor.execute("""
-            SELECT SUM(CASE WHEN mar3 THEN 1 ELSE 0 END) AS sum_mar3,
-                   SUM(CASE WHEN mar5 THEN 1 ELSE 0 END) AS sum_mar5,
-                   SUM(CASE WHEN mar10 THEN 1 ELSE 0 END) AS sum_mar10,
-                   SUM(CASE WHEN mar20 THEN 1 ELSE 0 END) AS sum_mar20
-            FROM trading
-            WHERE status != '1'
-        """)
-        sums = cursor.fetchone()
-        return {
-            "sum_mar3": int(sums[0] or 0),
-            "sum_mar5": int(sums[1] or 0),
-            "sum_mar10": int(sums[2] or 0),
-            "sum_mar20": int(sums[3] or 0)
-        }
-    except Exception as e:
-        logging.error(f"Error fetching trading sums: {e}")
-        return None
-    finally:
-        cursor.close()
-        connection.close()
-
 def get_results():
     """Fetch non-purchased trading records from the database."""
     connection, cursor = get_db_connection()
@@ -128,12 +102,13 @@ def task(db_resp, api_resp, coin_limits, data):
             # Use lock to ensure consistent access to the coin limits
             with purchase_lock:
                 for margin_key, margin_value in margin_levels.items():
+                    # Check if the daily limit allows for this margin-level purchase
                     if coin_limits[margin_key] > 0 and api_last_price >= margin_value:
                         logging.info(f"Purchasing {ele} at {margin_key} margin.")
                         update_margin_status(db_match_data['symbol'], margin_key)
                         update_coin_limit(margin_key)
-                        coin_limits[margin_key] -= 1  # Update local limit count
-                        break
+                        coin_limits[margin_key] -= 1  # Update in-memory limit count
+                        break  # Stop after purchasing at the first qualifying margin
 
     except Exception as e:
         logging.error(f"Error in task processing {ele}: {e}")
@@ -151,19 +126,18 @@ def update_margin_status(symbol, margin_level):
         cursor.close()
         connection.close()
 
-def get_diff_of_db_api_values(api_resp):
-    """Get the differences between DB and API values and pre-calculate necessary limits and sums."""
-    db_resp = get_results()
-    coin_limits = get_coin_limits()
-    if not db_resp or not coin_limits:
-        logging.error("Error: Failed to retrieve necessary data from the database.")
-        return None, None
-    return db_resp, coin_limits
-
 def show():
     """Main loop to fetch data, process coins, and handle iterations."""
+    coin_limits = get_coin_limits()  # Retrieve coin limits once per day
+    last_refresh_time = time.time()  # Store the last refresh time for daily limit
+
     while True:
         try:
+            # Refresh coin limits once per day
+            if time.time() - last_refresh_time > 86400:  # 86400 seconds = 24 hours
+                coin_limits = get_coin_limits()
+                last_refresh_time = time.time()
+
             logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
             # Get API data
@@ -173,8 +147,8 @@ def show():
                 time.sleep(60)
                 continue
 
-            # Get DB and pre-calculated values
-            db_resp, coin_limits = get_diff_of_db_api_values(api_resp)
+            # Get DB data for processing
+            db_resp = get_results()
             if not db_resp:
                 time.sleep(60)
                 continue
@@ -187,7 +161,7 @@ def show():
                 for chunk in chunks:
                     executor.submit(task, db_resp, api_resp, coin_limits, chunk)
 
-            time.sleep(60)
+            time.sleep(60)  # Wait before the next iteration
         except Exception as e:
             logging.error(f"An error occurred: {e}")
             time.sleep(60)
