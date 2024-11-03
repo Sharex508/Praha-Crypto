@@ -52,6 +52,8 @@ def create_tables():
                         mar20           BOOLEAN DEFAULT FALSE,
                         created_at      TEXT,
                         status          TEXT DEFAULT '0'
+                        last_notified_percentage        FLOAT DEFAULT 0.0,
+                        last_notified_decrease_percentage FLOAT DEFAULT 0.0
                     );
                 '''
                 cursor.execute(create_trading_table_query)
@@ -156,4 +158,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-#explain me
