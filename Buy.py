@@ -152,29 +152,35 @@ def update_margin_status(symbol, margin_level):
 def show():
     """Main loop to fetch data, process coins, and handle iterations."""
     while True:
-        logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
-        api_resp = get_data_from_wazirx()
-        if not api_resp:
-            logging.error("Failed to retrieve data from WazirX API.")
+        try:
+            logging.info(f"Starting new iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+            # Get API data
+            api_resp = get_data_from_wazirx()
+            if not api_resp:
+                logging.error("Failed to retrieve data from WazirX API.")
+                time.sleep(60)
+                continue
+
+            # Get DB and pre-calculated values
+            db_resp, coin_limits, trading_summary = get_diff_of_db_api_values(api_resp)
+            if not db_resp or not coin_limits or not trading_summary:
+                time.sleep(60)
+                continue
+
+            # Prepare symbols for processing
+            symbols = [obj['symbol'] for obj in db_resp]
+            chunk_size = min(20, len(symbols))
+            chunks = [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                for chunk in chunks:
+                    executor.submit(task, db_resp, api_resp, coin_limits, trading_summary, chunk)
+
             time.sleep(60)
-            continue
-
-        db_resp, coin_limits, trading_summary = get_coin_limits_and_trading_sums()
-        db_data = get_results()
-
-        if not db_data or not coin_limits or not trading_summary:
+        except Exception as e:
+            logging.error(f"An error occurred: {e}")
             time.sleep(60)
-            continue
-
-        symbols = [obj['symbol'] for obj in db_data]
-        chunk_size = 20
-        chunks = [symbols[i:i + chunk_size] for i in range(0, len(symbols), chunk_size)]
-
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            for chunk in chunks:
-                executor.submit(task, db_data, api_resp, coin_limits, trading_summary, chunk)
-
-        time.sleep(60)
 
 if __name__ == "__main__":
     show()
