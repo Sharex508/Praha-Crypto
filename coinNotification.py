@@ -1,5 +1,3 @@
-# coinNotification.py
-
 import psycopg2
 import requests
 from notifications import notisend
@@ -28,9 +26,12 @@ def get_active_trades():
         sql = "SELECT * FROM trading WHERE status = '1'"
         cursor.execute(sql)
         results = cursor.fetchall()
+        # Corrected keys to match the columns in the trading table
         keys = (
             'symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5',
-            'margin10', 'margin20', 'purchasePrice', 'quantity', 'created_at', 'status',
+            'margin10', 'margin20', 'purchasePrice',
+            'mar3', 'mar5', 'mar10', 'mar20',
+            'created_at', 'status',
             'last_notified_percentage', 'last_notified_decrease_percentage'
         )
         data = [dict(zip(keys, obj)) for obj in results]
@@ -104,7 +105,6 @@ def notify_price_increase(api_resp):
             last_notified = Decimal(trade.get('last_notified_percentage') or '0.0')
             last_notified_decrease = Decimal(trade.get('last_notified_decrease_percentage') or '0.0')
             high_price = Decimal(trade['highPrice'])
-            quantity = Decimal(trade.get('quantity') or '0.0')
 
             matching_api_data = next((item for item in api_resp if item["symbol"] == symbol), None)
             if matching_api_data:
