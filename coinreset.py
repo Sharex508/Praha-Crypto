@@ -51,7 +51,7 @@ def create_tables():
                         mar10           BOOLEAN DEFAULT FALSE,
                         mar20           BOOLEAN DEFAULT FALSE,
                         created_at      TEXT,
-                        status          TEXT DEFAULT '0'
+                        status          TEXT DEFAULT '0',  -- Added comma here
                         last_notified_percentage        FLOAT DEFAULT 0.0,
                         last_notified_decrease_percentage FLOAT DEFAULT 0.0
                     );
@@ -98,19 +98,19 @@ def getall_data(filter='USDT'):
 def fetch_coinnumber_data_from_salesforce():
     """Fetch margin and amount data from Salesforce Account records."""
     # Replace with your Salesforce credentials
-    sf = Salesforce(username='your_username', password='your_password', security_token='your_security_token')
-    query = "SELECT ID, Margin3Count__c, Margin5Count__c, Margin10Count__c, Margin20Count__c, Amount__c FROM Account"
+    sf = Salesforce(username='harshacrypto508@crypto.com', password='Harsha@nov@2024', security_token='dvKKsbSIY2b0FvErXukaSV3o')
+    query = "SELECT Id, Margin3Count__c, Margin5Count__c, Margin10Count__c, Margin20Count__c, Amount__c FROM Account"
     records = sf.query_all(query)
 
     # Transform Salesforce records into the required format
     coinnumber_data = [
         (
             record['Id'],  # Salesforce ID mapped to sfid
-            int(record.get('Margin3Count__c', '0')),
-            int(record.get('Margin5Count__c', '0')),
-            int(record.get('Margin10Count__c', '0')),
-            int(record.get('Margin20Count__c', '0')),
-            float(record.get('Amount__c', '5'))  # Default to 5 if no value provided
+            int(record.get('Margin3Count__c', '0') or 0),
+            int(record.get('Margin5Count__c', '0') or 0),
+            int(record.get('Margin10Count__c', '0') or 0),
+            int(record.get('Margin20Count__c', '0') or 0),
+            float(record.get('Amount__c', '5') or 5.0)  # Default to 5 if no value provided
         )
         for record in records['records']
     ]
