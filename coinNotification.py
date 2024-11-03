@@ -37,10 +37,6 @@ def get_active_trades():
             'margin10',                 # text
             'margin20',                 # text
             'purchaseprice',            # text
-            'margin3count',             # text
-            'margin5count',             # text
-            'margin10count',            # text
-            'margin20count',            # text
             'mar3',                     # boolean DEFAULT false
             'mar5',                     # boolean DEFAULT false
             'mar10',                    # boolean DEFAULT false
