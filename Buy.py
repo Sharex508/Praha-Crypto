@@ -5,7 +5,11 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 
-logging.basicConfig(level=logging.DEBUG)
+# Set up logging to show only purchase-related actions
+logging.basicConfig(level=logging.INFO)
+
+# Initialize a lock for synchronizing access to the purchase counts
+purchase_lock = threading.Lock()
 
 def get_db_connection():
     """Establish and return a connection to the PostgreSQL database."""
@@ -20,7 +24,6 @@ def get_data_from_wazirx(filter='USDT'):
     """Fetch price data from WazirX API."""
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
     resp = [d for d in data if filter in d['symbol'] and 'price' in d]
-    logging.debug(f"DEBUG - Fetched {len(resp)} symbols from API with filter '{filter}'.")
     return resp
 
 def get_coin_limits_and_trading_sums():
@@ -59,7 +62,6 @@ def get_coin_limits_and_trading_sums():
             "sum_mar20": int(trading_sums[3] or 0)
         }
 
-        logging.debug(f"DEBUG - Coin Limits: {coin_limits}, Trading Sums (non-purchased): {trading_summary}")
         return coin_limits, trading_summary
     except Exception as e:
         logging.error(f"Error fetching coin limits and trading sums: {e}")
@@ -86,7 +88,6 @@ def get_results():
 
         data = [dict(zip(keys, obj)) for obj in results]
 
-        logging.debug(f"DEBUG - Fetched {len(data)} non-purchased trading records from the database.")
         return data
     except Exception as e:
         logging.error(f"Error fetching results: {e}")
@@ -95,27 +96,19 @@ def get_results():
         cursor.close()
         connection.close()
 
-
-# Initialize a lock for synchronizing access to the purchase counts
-purchase_lock = threading.Lock()
-
 def task(db_resp, api_resp, coin_limits, trading_summary, data):
     """Process each chunk of data and make purchases based on the margin logic."""
     try:
         for ele in data:
             db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
             if not db_match_data:
-                logging.debug(f"DEBUG - Symbol {ele} not found in DB data.")
                 continue
             api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
             if not api_match_data:
-                logging.debug(f"DEBUG - Symbol {ele} not found in API data.")
                 continue
 
             api_last_price = float(api_match_data['price'] or 0.0)
             db_price = float(db_match_data.get("intialPrice") or 0.0)
-
-            logging.debug(f"\nProcessing {ele}\nLast Price: {api_last_price}\nDB Price: {db_price}\nCoin Limits: {coin_limits}")
 
             # Convert the margin values from string to float before comparison
             margin3 = float(db_match_data["margin3"] or 0.0)
@@ -128,41 +121,33 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                 # Check and purchase at margin3 if limit not reached
                 if trading_summary["sum_mar3"] < coin_limits["margin3count"]:
                     if api_last_price >= margin3:
-                        logging.debug(f"DEBUG - Purchasing {ele} at 3% margin. Current count: {trading_summary['sum_mar3']} out of {coin_limits['margin3count']}")
+                        logging.info(f"Purchasing {ele} at 3% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar3')
                         trading_summary["sum_mar3"] += 1
-                    else:
-                        logging.debug(f"DEBUG - {ele} did not meet the margin3 condition. Last price: {api_last_price}, Required: {margin3}")
                     continue
 
                 # Check and purchase at margin5 if limit not reached
                 if trading_summary["sum_mar5"] < coin_limits["margin5count"]:
                     if api_last_price >= margin5:
-                        logging.debug(f"DEBUG - Purchasing {ele} at 5% margin. Current count: {trading_summary['sum_mar5']} out of {coin_limits['margin5count']}")
+                        logging.info(f"Purchasing {ele} at 5% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar5')
                         trading_summary["sum_mar5"] += 1
-                    else:
-                        logging.debug(f"DEBUG - {ele} did not meet the margin5 condition. Last price: {api_last_price}, Required: {margin5}")
                     continue
 
                 # Check and purchase at margin10 if limit not reached
                 if trading_summary["sum_mar10"] < coin_limits["margin10count"]:
                     if api_last_price >= margin10:
-                        logging.debug(f"DEBUG - Purchasing {ele} at 10% margin. Current count: {trading_summary['sum_mar10']} out of {coin_limits['margin10count']}")
+                        logging.info(f"Purchasing {ele} at 10% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar10')
                         trading_summary["sum_mar10"] += 1
-                    else:
-                        logging.debug(f"DEBUG - {ele} did not meet the margin10 condition. Last price: {api_last_price}, Required: {margin10}")
                     continue
 
                 # Check and purchase at margin20 if limit not reached
                 if trading_summary["sum_mar20"] < coin_limits["margin20count"]:
                     if api_last_price >= margin20:
-                        logging.debug(f"DEBUG - Purchasing {ele} at 20% margin. Current count: {trading_summary['sum_mar20']} out of {coin_limits['margin20count']}")
+                        logging.info(f"Purchasing {ele} at 20% margin.")
                         update_margin_status(db_match_data['symbol'], 'mar20')
                         trading_summary["sum_mar20"] += 1
-                    else:
-                        logging.debug(f"DEBUG - {ele} did not meet the margin20 condition. Last price: {api_last_price}, Required: {margin20}")
 
     except Exception as e:
         logging.error(f"Error in task processing {ele}: {e}")
@@ -190,7 +175,6 @@ def get_diff_of_db_api_values(api_resp):
         logging.error("Error: Failed to retrieve necessary data from the database.")
         return None, None, None
 
-    logging.debug("DEBUG - Completed data retrieval and pre-calculations.")
     return db_resp, coin_limits, trading_summary
 
 def show():
@@ -217,11 +201,8 @@ def show():
             chunk_size = min(20, len(dicts_data))
             chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
 
-            logging.debug(f"DEBUG - Total Chunks Created: {len(chunks)}. Total Records: {len(dicts_data)}")
-
             with ThreadPoolExecutor(max_workers=4) as executor:
-                for idx, chunk in enumerate(chunks):
-                    logging.debug(f"DEBUG - Submitting chunk {idx + 1}/{len(chunks)} with {len(chunk)} records")
+                for chunk in chunks:
                     executor.submit(task, db_resp, api_resp, coin_limits, trading_summary, chunk)
 
             time.sleep(60)
