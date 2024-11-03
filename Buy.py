@@ -46,13 +46,17 @@ def get_coin_limits():
 
 def update_coin_limit(margin_level):
     """Decrement the specified margin count in Coinnumber table."""
+    # Correct the column name to match the structure in Coinnumber
+    column_name = f"{margin_level}count"  # Append 'count' to match column names like margin3count
     connection, cursor = get_db_connection()
     try:
-        sql_update = f"UPDATE Coinnumber SET {margin_level} = {margin_level} - 1 WHERE {margin_level} > 0"
+        # Update the limit count in Coinnumber
+        sql_update = f"UPDATE Coinnumber SET {column_name} = {column_name} - 1 WHERE {column_name} > 0"
         cursor.execute(sql_update)
         connection.commit()
+        logging.info(f"Updated {column_name} in Coinnumber.")
     except Exception as e:
-        logging.error(f"Error updating coin limit for {margin_level}: {e}")
+        logging.error(f"Error updating coin limit for {column_name}: {e}")
     finally:
         cursor.close()
         connection.close()
