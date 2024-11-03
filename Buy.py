@@ -117,11 +117,12 @@ def task(db_resp, api_resp, coin_limits, data):
 
             api_last_price = float(api_match_data['price'] or 0.0)
 
+            # Use .get() to safely access margin levels, defaulting to 0.0 if any margin key is missing
             margin_levels = {
-                "margin3": float(db_match_data["margin3"] or 0.0),
-                "margin5": float(db_match_data["margin5"] or 0.0),
-                "margin10": float(db_match_data["margin10"] or 0.0),
-                "margin20": float(db_match_data["margin20"] or 0.0)
+                "margin3": float(db_match_data.get("margin3", 0.0)),
+                "margin5": float(db_match_data.get("margin5", 0.0)),
+                "margin10": float(db_match_data.get("margin10", 0.0)),
+                "margin20": float(db_match_data.get("margin20", 0.0))
             }
 
             # Use lock to ensure consistent access to the coin limits
