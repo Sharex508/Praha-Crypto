@@ -87,36 +87,25 @@ def task(db_resp, api_resp):
 
         # Margin logic for mar3, mar5, mar10, mar20
         margin3 = float(coin.get("margin3", 0))
-        margin3count = int(coin.get("margin3count", 0) or 0)  # Ensure None becomes 0
         margin5 = float(coin.get("margin5", 0))
-        margin5count = int(coin.get("margin5count", 0) or 0)
         margin10 = float(coin.get("margin10", 0))
-        margin10count = int(coin.get("margin10count", 0) or 0)
         margin20 = float(coin.get("margin20", 0))
-        margin20count = int(coin.get("margin20count", 0) or 0)
-
-        logging.debug(f"DEBUG - Margins for {symbol}: mar3={margin3}, mar5={margin5}, mar10={margin10}, mar20={margin20}")
-        logging.debug(f"DEBUG - Counts for {symbol}: margin3count={margin3count}, margin5count={margin5count}, margin10count={margin10count}, margin20count={margin20count}")
 
         # Keep track of the highest margin
         highest_margin_level = None
         highest_margin = 0
 
-        # Check which margin levels qualify, and ensure that the count is greater than 0
-        if not coin['mar3'] and api_last_price >= margin3 and margin3count > 0:
-            logging.debug(f"DEBUG - {symbol} qualifies for mar3: API Price={api_last_price} >= Margin3={margin3}")
+        # Check which margin levels qualify
+        if not coin['mar3'] and api_last_price >= margin3:
             highest_margin_level = 'mar3'
             highest_margin = margin3
-        elif not coin['mar5'] and api_last_price >= margin5 and margin5count > 0:
-            logging.debug(f"DEBUG - {symbol} qualifies for mar5: API Price={api_last_price} >= Margin5={margin5}")
+        if not coin['mar5'] and api_last_price >= margin5:
             highest_margin_level = 'mar5'
             highest_margin = margin5
-        elif not coin['mar10'] and api_last_price >= margin10 and margin10count > 0:
-            logging.debug(f"DEBUG - {symbol} qualifies for mar10: API Price={api_last_price} >= Margin10={margin10}")
+        if not coin['mar10'] and api_last_price >= margin10:
             highest_margin_level = 'mar10'
             highest_margin = margin10
-        elif not coin['mar20'] and api_last_price >= margin20 and margin20count > 0:
-            logging.debug(f"DEBUG - {symbol} qualifies for mar20: API Price={api_last_price} >= Margin20={margin20}")
+        if not coin['mar20'] and api_last_price >= margin20:
             highest_margin_level = 'mar20'
             highest_margin = margin20
 
@@ -125,29 +114,8 @@ def task(db_resp, api_resp):
             logging.debug(f"Purchasing {symbol} at {highest_margin_level} margin. Last price: {api_last_price}, Required: {highest_margin}")
             purchased_count += 1
             update_margin_status(coin['symbol'], highest_margin_level)
-            reset_margin_count(coin['symbol'], highest_margin_level)  # Set margin count to 0 after purchase
 
         logging.debug(f"DEBUG - {symbol} processed, total purchased: {purchased_count}")
-
-def reset_margin_count(symbol, margin_level):
-    """Reset the margin count of a coin after purchasing to 0."""
-    connection = get_db_connection()
-    if connection is None:
-        logging.error("Error: Failed to connect to the database.")
-        return
-    try:
-        # Set the count of the respective margin (e.g., margin3count, margin5count) to 0 after purchase
-        margin_count_field = f"{margin_level}count"
-        sql_update = f"UPDATE trading SET {margin_count_field} = 0 WHERE symbol = %s"
-        with connection.cursor() as cursor:
-            cursor.execute(sql_update, (symbol,))
-            connection.commit()
-        logging.info(f"Reset {margin_count_field} to 0 for {symbol}.")
-    except Exception as e:
-        logging.error(f"Error resetting margin count for {symbol}: {e}")
-    finally:
-        connection.close()
-
 
 def update_margin_status(symbol, margin_level):
     """Update the margin status in the database for a purchased coin."""
@@ -166,7 +134,6 @@ def update_margin_status(symbol, margin_level):
         logging.error(f"Error updating margin status for {symbol}: {e}")
     finally:
         connection.close()
-
 
 def show():
     """Main function to initiate data fetching and processing."""
