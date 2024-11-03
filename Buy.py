@@ -1,4 +1,3 @@
-# Buy.py
 import time
 import psycopg2
 import requests
@@ -27,8 +26,8 @@ def get_data_from_wazirx(filter='USDT'):
     resp = [d for d in data if filter in d['symbol'] and 'price' in d]
     return resp
 
-def get_coin_limits_and_trading_sums():
-    """Fetch coin limits and trading sums from the database."""
+def get_coin_limits():
+    """Fetch coin limits from the Coinnumber table."""
     connection, cursor = get_db_connection()
     try:
         # Get Coinnumber limits
@@ -44,14 +43,26 @@ def get_coin_limits_and_trading_sums():
             "amount": float(limits[4] or 0.0)
         }
 
-        # Get sum of mar3, mar5, mar10, mar20 from trading table where status != '1' (non-purchased coins)
+        return coin_limits
+    except Exception as e:
+        logging.error(f"Error fetching coin limits: {e}")
+        return None
+    finally:
+        cursor.close()
+        connection.close()
+
+def get_trading_sums():
+    """Fetch the number of purchased coins at each margin level."""
+    connection, cursor = get_db_connection()
+    try:
+        # Get sum of mar3, mar5, mar10, mar20 from trading table where status = '1' (purchased coins)
         sql_sum = """
         SELECT SUM(CASE WHEN mar3 THEN 1 ELSE 0 END) AS sum_mar3,
                SUM(CASE WHEN mar5 THEN 1 ELSE 0 END) AS sum_mar5,
                SUM(CASE WHEN mar10 THEN 1 ELSE 0 END) AS sum_mar10,
                SUM(CASE WHEN mar20 THEN 1 ELSE 0 END) AS sum_mar20
         FROM trading
-        WHERE status != '1'
+        WHERE status = '1'
         """
         cursor.execute(sql_sum)
         trading_sums = cursor.fetchone()
@@ -63,10 +74,10 @@ def get_coin_limits_and_trading_sums():
             "sum_mar20": int(trading_sums[3] or 0)
         }
 
-        return coin_limits, trading_summary
+        return trading_summary
     except Exception as e:
-        logging.error(f"Error fetching coin limits and trading sums: {e}")
-        return None, None
+        logging.error(f"Error fetching trading sums: {e}")
+        return None
     finally:
         cursor.close()
         connection.close()
@@ -76,7 +87,7 @@ def get_results():
     connection, cursor = get_db_connection()
     try:
         sql = """
-        SELECT symbol, intialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
+        SELECT symbol, initialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
                mar3, mar5, mar10, mar20
         FROM trading
         WHERE status != '1'
@@ -84,7 +95,7 @@ def get_results():
         cursor.execute(sql)
         results = cursor.fetchall()
 
-        keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20',
+        keys = ('symbol', 'initialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20',
                 'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20')
 
         data = [dict(zip(keys, obj)) for obj in results]
@@ -109,7 +120,7 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                 continue
 
             api_last_price = float(api_match_data['price'] or 0.0)
-            db_price = float(db_match_data.get("intialPrice") or 0.0)
+            db_price = float(db_match_data.get("initialPrice") or 0.0)
 
             # Convert the margin values from string to float before comparison
             margin3 = float(db_match_data["margin3"] or 0.0)
@@ -167,17 +178,6 @@ def update_margin_status(symbol, margin_level):
         cursor.close()
         connection.close()
 
-def get_diff_of_db_api_values(api_resp):
-    """Get the differences between DB and API values and pre-calculate necessary limits and sums."""
-    db_resp = get_results()
-    coin_limits, trading_summary = get_coin_limits_and_trading_sums()
-
-    if not db_resp or not coin_limits or not trading_summary:
-        logging.error("Error: Failed to retrieve necessary data from the database.")
-        return None, None, None
-
-    return db_resp, coin_limits, trading_summary
-
 def show():
     """Main loop to fetch data, process coins, and handle iterations."""
     while True:
@@ -191,8 +191,16 @@ def show():
                 time.sleep(60)
                 continue
 
-            # Get DB and pre-calculated values
-            db_resp, coin_limits, trading_summary = get_diff_of_db_api_values(api_resp)
+            # Get coin limits and trading sums
+            coin_limits = get_coin_limits()
+            trading_summary = get_trading_sums()
+            if not coin_limits or not trading_summary:
+                logging.error("Error: Failed to retrieve necessary data from the database.")
+                time.sleep(60)
+                continue
+
+            # Get DB data
+            db_resp = get_results()
             if not db_resp:
                 time.sleep(60)
                 continue
