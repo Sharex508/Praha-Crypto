@@ -1,5 +1,6 @@
 import psycopg2
 import requests
+from notifications import notisend
  
 def get_db_connection():
     connection = psycopg2.connect(user="postgres",
