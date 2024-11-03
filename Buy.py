@@ -87,7 +87,7 @@ def get_results():
     connection, cursor = get_db_connection()
     try:
         sql = """
-        SELECT symbol, initialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
+        SELECT symbol, intialPrice, highPrice, lastPrice, margin3, margin5, margin10, margin20, purchasePrice,
                mar3, mar5, mar10, mar20
         FROM trading
         WHERE status != '1'
@@ -95,7 +95,7 @@ def get_results():
         cursor.execute(sql)
         results = cursor.fetchall()
 
-        keys = ('symbol', 'initialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20',
+        keys = ('symbol', 'intialPrice', 'highPrice', 'lastPrice', 'margin3', 'margin5', 'margin10', 'margin20',
                 'purchasePrice', 'mar3', 'mar5', 'mar10', 'mar20')
 
         data = [dict(zip(keys, obj)) for obj in results]
