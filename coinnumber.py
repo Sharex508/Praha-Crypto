@@ -15,10 +15,10 @@ def update_coinnumber():
         cursor = connection.cursor()
         # Specify the sfid and the new values
         sfid = '1234'
-        new_margin3count = 5
-        new_margin5count = 5
-        new_margin10count = 5
-        new_margin20count = 5
+        new_margin3count = 10
+        new_margin5count = 10
+        new_margin10count = 10
+        new_margin20count = 0
         new_amount = 5
 
         # Get the number of records before the update
