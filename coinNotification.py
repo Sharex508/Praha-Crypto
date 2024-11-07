@@ -137,7 +137,27 @@ def update_notified_decrease_percentage(symbol, percentage):
         cursor.close()
         connection.close()
 
-def notify_price_changes(api_resp):
+def send_notification_grouped(notification_time, increased_coins, decreased_coins):
+    """
+    Compose and send a grouped notification message.
+    """
+    message_lines = [f"Time: {notification_time}"]
+    
+    if increased_coins:
+        message_lines.append("\nIncreased Coins:")
+        for coin in increased_coins:
+            message_lines.append(f"{coin['symbol']}, Purchase Price: {coin['purchase_price']}, Percentage Increase: {coin['percentage_change']:.2f}%")
+    
+    if decreased_coins:
+        message_lines.append("\nDecreased Coins:")
+        for coin in decreased_coins:
+            message_lines.append(f"{coin['symbol']}, Purchase Price: {coin['purchase_price']}, Percentage Decrease: {coin['percentage_change']:.2f}%")
+    
+    message = "\n".join(message_lines)
+    notisend(message)
+    logging.info(f"Notification sent:\n{message}")
+
+def notify_price_increase(api_resp):
     """
     Process active trades, categorize them into increased and decreased coins,
     and send a formatted notification via Telegram.
@@ -245,24 +265,12 @@ def notify_price_changes(api_resp):
         except Exception as e:
             logging.error(f"Error processing {symbol}: {e}")
 
-    # Compose the notification message
+    # Compose and send the notification message
     if increased_coins or decreased_coins:
-        message_lines = [f"Time: {notification_time}"]
-        if increased_coins:
-            message_lines.append("\nIncreased Coins:")
-            for coin in increased_coins:
-                message_lines.append(f"{coin['symbol']}, Purchase Price: {coin['purchase_price']}, Percentage Increase: {coin['percentage_change']:.2f}%")
-        if decreased_coins:
-            message_lines.append("\nDecreased Coins:")
-            for coin in decreased_coins:
-                message_lines.append(f"{coin['symbol']}, Purchase Price: {coin['purchase_price']}, Percentage Decrease: {coin['percentage_change']:.2f}%")
-        message = "\n".join(message_lines)
-        # Send the message via your notification function
-        notisend(message)
-        logging.info(f"Notification sent:\n{message}")
+        send_notification_grouped(notification_time, increased_coins, decreased_coins)
     else:
         logging.info("No significant price changes to notify.")
 
 if __name__ == "__main__":
     api_resp = get_data_from_binance()
-    notify_price_changes(api_resp)
+    notify_price_increase(api_resp)
