@@ -31,6 +31,7 @@ def get_db_connection():
 def get_active_trades():
     """
     Fetch all active trades (status = '1') from the 'trading' table.
+    Dynamically retrieves column names to ensure correct mapping.
     """
     connection, cursor = get_db_connection()
     if not connection or not cursor:
@@ -39,27 +40,9 @@ def get_active_trades():
         sql = "SELECT * FROM trading WHERE status = '1'"
         cursor.execute(sql)
         results = cursor.fetchall()
-        # Define keys according to the column order in the 'trading' table
-        keys = (
-            'symbol',                   # text NOT NULL
-            'intialprice',              # text
-            'highprice',                # text
-            'lastprice',                # text
-            'margin3',                  # text
-            'margin5',                  # text
-            'margin10',                 # text
-            'margin20',                 # text
-            'purchaseprice',            # text
-            'mar3',                     # boolean DEFAULT false
-            'mar5',                     # boolean DEFAULT false
-            'mar10',                    # boolean DEFAULT false
-            'mar20',                    # boolean DEFAULT false
-            'created_at',               # text
-            'status',                   # text DEFAULT '0'::text
-            'last_notified_decrease_percentage',  # double precision DEFAULT 0.0
-            'last_notified_percentage'           # double precision DEFAULT 0.0
-        )
-        data = [dict(zip(keys, obj)) for obj in results]
+        # Dynamically get column names
+        columns = [desc[0] for desc in cursor.description]
+        data = [dict(zip(columns, obj)) for obj in results]
         return data
     except Exception as e:
         logging.error(f"Error fetching active trades: {e}")
@@ -179,7 +162,7 @@ def notify_price_increase(api_resp):
             logging.info(f"Processing {symbol}")
 
             # Convert initial_price
-            initial_price_str = trade['purchaseprice']
+            initial_price_str = trade.get('purchaseprice') or trade.get('intialprice') or ''
             if not initial_price_str:
                 logging.error(f"Invalid initial price for {symbol}: '{initial_price_str}'. Skipping.")
                 continue  # Skip to the next trade
@@ -206,7 +189,7 @@ def notify_price_increase(api_resp):
                 last_notified_dec = Decimal('0.0')
 
             # Convert high_price
-            high_price_str = trade['highprice'] if trade['highprice'] else initial_price_str
+            high_price_str = trade.get('highprice') or initial_price_str
             try:
                 high_price = Decimal(high_price_str)
             except (InvalidOperation, TypeError) as e:
@@ -224,6 +207,9 @@ def notify_price_increase(api_resp):
                     continue  # Skip to the next trade
 
                 # Calculate percentage increase
+                if initial_price == 0:
+                    logging.error(f"Initial price for {symbol} is zero. Cannot calculate percentage change. Skipping.")
+                    continue
                 percentage_change = ((current_price - initial_price) / initial_price) * Decimal('100')
 
                 # Update high price if current price exceeds it
