@@ -3,6 +3,7 @@ import requests
 from notifications import notisend
 from decimal import Decimal, getcontext
 import logging
+from datetime import datetime
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -26,25 +27,10 @@ def get_active_trades():
         sql = "SELECT * FROM trading WHERE status = '1'"
         cursor.execute(sql)
         results = cursor.fetchall()
-        # Corrected keys to match the columns in the trading table in exact order
         keys = (
-            'symbol',                   # text NOT NULL
-            'intialprice',              # text
-            'highprice',                # text
-            'lastprice',                # text
-            'margin3',                  # text
-            'margin5',                  # text
-            'margin10',                 # text
-            'margin20',                 # text
-            'purchaseprice',            # text
-            'mar3',                     # boolean DEFAULT false
-            'mar5',                     # boolean DEFAULT false
-            'mar10',                    # boolean DEFAULT false
-            'mar20',                    # boolean DEFAULT false
-            'created_at',               # text
-            'status',                   # text DEFAULT '0'::text
-            'last_notified_decrease_percentage',  # double precision DEFAULT 0.0
-            'last_notified_percentage'           # double precision DEFAULT 0.0
+            'symbol', 'intialprice', 'highprice', 'lastprice', 'margin3', 'margin5',
+            'margin10', 'margin20', 'purchaseprice', 'mar3', 'mar5', 'mar10', 'mar20',
+            'created_at', 'status', 'last_notified_decrease_percentage', 'last_notified_percentage'
         )
         data = [dict(zip(keys, obj)) for obj in results]
         return data
@@ -58,16 +44,6 @@ def get_active_trades():
 def get_data_from_wazirx(filter='USDT'):
     data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
     return [d for d in data if filter in d['symbol'] and 'price' in d]
-
-def send_notification(symbol, initial_price, current_price, direction, percentage_change):
-    message = f"Coin: {symbol}\n" \
-              f"Purchase Price: {initial_price}\n" \
-              f"Current Price: {current_price}\n" \
-              f"{direction.capitalize()} of {percentage_change:.2f}%"
-
-    # Assuming your notisend function sends a message string
-    notisend(message)
-    logging.info(f"Notification sent: {message}")
 
 def update_high_price(symbol, new_high_price):
     connection, cursor = get_db_connection()
@@ -85,7 +61,7 @@ def update_notified_percentage(symbol, percentage):
     connection, cursor = get_db_connection()
     try:
         sql = "UPDATE trading SET last_notified_percentage = %s WHERE symbol = %s"
-        cursor.execute(sql, (percentage, symbol))  # Pass percentage as float
+        cursor.execute(sql, (percentage, symbol))
         connection.commit()
     except Exception as e:
         logging.error(f"Error updating last_notified_percentage for {symbol}: {e}")
@@ -97,7 +73,7 @@ def update_notified_decrease_percentage(symbol, percentage):
     connection, cursor = get_db_connection()
     try:
         sql = "UPDATE trading SET last_notified_decrease_percentage = %s WHERE symbol = %s"
-        cursor.execute(sql, (percentage, symbol))  # Pass percentage as float
+        cursor.execute(sql, (percentage, symbol))
         connection.commit()
     except Exception as e:
         logging.error(f"Error updating last_notified_decrease_percentage for {symbol}: {e}")
@@ -105,8 +81,10 @@ def update_notified_decrease_percentage(symbol, percentage):
         cursor.close()
         connection.close()
 
-def notify_price_increase(api_resp):
+def notify_price_changes(api_resp):
     db_resp = get_active_trades()
+    increased_coins = []
+    decreased_coins = []
 
     for trade in db_resp:
         try:
@@ -120,37 +98,29 @@ def notify_price_increase(api_resp):
             if matching_api_data:
                 current_price = Decimal(matching_api_data['price'])
                 percentage_increase = ((current_price - initial_price) / initial_price) * Decimal('100')
-
-                # Update high price if current price exceeds it
-                if current_price > high_price:
-                    update_high_price(symbol, float(current_price))
-                    high_price = current_price  # Update in variable too
-                    last_notified_decrease = Decimal('0.0')  # Reset decrease notifications
-
-                # Logging current state
-                logging.info(f"{symbol} - Current Price: {current_price}, Initial Price: {initial_price}, "
-                             f"Percentage Increase: {percentage_increase:.2f}%, Last Notified Increase: {last_notified}%")
+                percentage_decrease_from_high = ((high_price - current_price) / high_price) * Decimal('100')
 
                 # For increase notifications at every 5% increment
                 next_increment = ((last_notified // Decimal('5')) + 1) * Decimal('5')
                 if percentage_increase >= next_increment:
-                    send_notification(symbol, initial_price, current_price, "increase", percentage_increase)
+                    increased_coins.append({
+                        "symbol": symbol,
+                        "purchase_price": initial_price,
+                        "percentage_change": float(percentage_increase)
+                    })
                     update_notified_percentage(symbol, float(next_increment))
-                    last_notified = next_increment  # Update local variable
-
-                # Calculate percentage decrease from high price
-                percentage_decrease_from_high = ((high_price - current_price) / high_price) * Decimal('100')
-
-                # Logging decrease state
-                logging.info(f"{symbol} - High Price: {high_price}, Percentage Decrease from High: {percentage_decrease_from_high:.2f}%, "
-                             f"Last Notified Decrease: {last_notified_decrease}%")
+                    last_notified = next_increment
 
                 # For decrease notifications at every 5% decrement
                 next_decrement = ((last_notified_decrease // Decimal('5')) + 1) * Decimal('5')
                 if (percentage_decrease_from_high >= next_decrement) and (percentage_decrease_from_high >= Decimal('5')):
-                    send_notification(symbol, initial_price, current_price, "decrease", percentage_decrease_from_high)
+                    decreased_coins.append({
+                        "symbol": symbol,
+                        "purchase_price": initial_price,
+                        "percentage_change": float(percentage_decrease_from_high)
+                    })
                     update_notified_decrease_percentage(symbol, float(next_decrement))
-                    last_notified_decrease = next_decrement  # Update local variable
+                    last_notified_decrease = next_decrement
 
             else:
                 logging.warning(f"No matching API data for {symbol}")
@@ -159,6 +129,23 @@ def notify_price_increase(api_resp):
         except Exception as e:
             logging.error(f"Error processing {trade['symbol']}: {e}")
 
+    # Sending notification with categorized format
+    notification_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    message = f"Time: {notification_time}\n\nIncreased Coins:\n"
+    message += "\n".join(
+        [f"{coin['symbol']}, Purchase Price: {coin['purchase_price']}, Increase: {coin['percentage_change']:.2f}%"
+         for coin in increased_coins]
+    ) or "No coins increased."
+
+    message += "\n\nDecreased Coins:\n"
+    message += "\n".join(
+        [f"{coin['symbol']}, Purchase Price: {coin['purchase_price']}, Decrease: {coin['percentage_change']:.2f}%"
+         for coin in decreased_coins]
+    ) or "No coins decreased."
+
+    notisend(message)
+    logging.info(f"Notification sent: {message}")
+
 if __name__ == "__main__":
     api_resp = get_data_from_wazirx()
-    notify_price_increase(api_resp)
+    notify_price_changes(api_resp)
