@@ -22,7 +22,7 @@ logging.basicConfig(
 purchase_lock = threading.Lock()
 
 # Initialize Binance client with API keys from environment variables
-API_KEY = 'Gx5uw7H44XRiT2BdgIgZuPznhILMLhmktmncowAalGPIppqnFyDY401r2xhEgrYf'       # Ensure this environment variable is set
+API_KEY = '8DQevqOGL7FE8rrzvOrBn6brernCBHqfakSeN8Mv2n7a8V5gvo21CyDfmltpHpmP'       # Ensure this environment variable is set
 API_SECRET = 'epeo2Y25uFPovRqM1fRwoHCGcReGJcrk4tgb0bophDK0v7HMItadf1w84EtmiRlO' # Ensure this environment variable is set
 client = Client(API_KEY, API_SECRET)
 
