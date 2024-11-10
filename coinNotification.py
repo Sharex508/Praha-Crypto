@@ -276,7 +276,7 @@ def main():
             logging.info(f"Notification iteration completed in {iteration_end - iteration_start:.2f} seconds")
 
             # Wait for desired interval before the next execution cycle
-            time.sleep(300)  # Sleep for 5 minutes (adjust as needed)
+            time.sleep(60)  # Sleep for 5 minutes (adjust as needed)
 
         except Exception as e:
             logging.error(f"An error occurred in notification_exe.py: {e}")
