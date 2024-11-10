@@ -5,10 +5,10 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
 from binance.spot import Spot as Client
-from notifications import notisend  # Ensure this module exists and is properly configured
+from buynoti import notisend  # Ensure this module exists and is properly configured
 import os
 
-# Set up logging to show only purchase-related actions
+# Set up logging to show both file and console outputs
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
@@ -22,15 +22,15 @@ logging.basicConfig(
 purchase_lock = threading.Lock()
 
 # Initialize Binance client with API keys from environment variables
-API_KEY = os.getenv('BINANCE_API_KEY')       # Ensure this environment variable is set
-API_SECRET = os.getenv('BINANCE_API_SECRET') # Ensure this environment variable is set
+API_KEY = 'Gx5uw7H44XRiT2BdgIgZuPznhILMLhmktmncowAalGPIppqnFyDY401r2xhEgrYf'       # Ensure this environment variable is set
+API_SECRET = 'epeo2Y25uFPovRqM1fRwoHCGcReGJcrk4tgb0bophDK0v7HMItadf1w84EtmiRlO' # Ensure this environment variable is set
 client = Client(API_KEY, API_SECRET)
 
 def get_db_connection():
     """Establish and return a connection to the PostgreSQL database."""
     connection = psycopg2.connect(
         user="postgres",
-        password="Harsha508",
+        password="Harsha508",  # **Security Risk:** Avoid hardcoding passwords
         host="harshacry.c3cca44au3xf.ap-south-1.rds.amazonaws.com",
         port="5432",
         database="HarshaCry"
@@ -138,6 +138,9 @@ def buy_asset_with_usd(asset_symbol, usd_amount):
     Parameters:
     asset_symbol (str): The symbol of the asset to buy (e.g., 'NEIROUSDT').
     usd_amount (float): The USD amount to spend on the purchase, assuming USD ≈ USDT.
+    
+    Returns:
+    float: The executed purchase price per unit of the asset.
     """
     # Convert USD amount to USDT amount, assuming 1 USD ≈ 1 USDT
     usdt_amount = usd_amount  # This example assumes 1 USD ≈ 1 USDT
@@ -153,15 +156,66 @@ def buy_asset_with_usd(asset_symbol, usd_amount):
             type='MARKET',
             quoteOrderQty=str(usdt_amount)  # Convert to string as required by the API
         )
-        success_message = f"Successfully purchased {asset_symbol} worth ${usd_amount} USD."
+        
+        # Extract the executed price from the order response
+        fills = order.get('fills', [])
+        if not fills:
+            raise ValueError("No fills found in the order response.")
+        
+        total_cost = 0.0
+        total_qty = 0.0
+        for fill in fills:
+            price = float(fill.get('price', 0.0))
+            qty = float(fill.get('qty', 0.0))
+            total_cost += price * qty
+            total_qty += qty
+        
+        if total_qty == 0:
+            raise ValueError("Total quantity purchased is zero.")
+        
+        average_price = total_cost / total_qty
+        
+        success_message = f"Successfully purchased {asset_symbol} worth ${usd_amount} USD at an average price of {average_price:.2f} USDT."
         print(success_message)
         notisend(success_message)  # Send notification
         logging.info(success_message)
+        
+        return average_price  # Return the executed purchase price
+        
     except Exception as e:
         error_message = f"An error occurred while purchasing {asset_symbol}: {e}"
         print(error_message)
         notisend(error_message)  # Send error notification
         logging.error(error_message)
+        return None  # Indicate failure
+
+def update_margin_status(symbol, margin_level, purchase_price):
+    """
+    Update the margin status and purchase price in the database for a purchased coin.
+    
+    Parameters:
+    symbol (str): The symbol of the asset purchased (e.g., 'NEIROUSDT').
+    margin_level (str): The margin level at which the asset was purchased (e.g., 'mar3').
+    purchase_price (float): The executed purchase price of the asset.
+    """
+    connection, cursor = get_db_connection()
+    try:
+        # Prepare the SQL statement to update the margin level, status, and purchasePrice
+        sql_update_trading = f"""
+            UPDATE trading 
+            SET {margin_level} = TRUE, 
+                status = '1', 
+                purchasePrice = %s 
+            WHERE symbol = %s
+        """
+        cursor.execute(sql_update_trading, (purchase_price, symbol))
+        connection.commit()
+        logging.info(f"{symbol} purchased at {margin_level} with price {purchase_price}. Status updated to 1.")
+    except Exception as e:
+        logging.error(f"Error updating margin status for {symbol}: {e}")
+    finally:
+        cursor.close()
+        connection.close()
 
 def task(db_resp, api_resp, coin_limits, trading_summary, data):
     """Process each chunk of data and make purchases based on the margin logic."""
@@ -189,54 +243,44 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                 if trading_summary["sum_mar3"] < coin_limits["margin3count"]:
                     if api_last_price >= margin3 and not db_match_data['mar3']:
                         logging.info(f"Purchasing {ele['symbol']} at 3% margin.")
-                        buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
-                        update_margin_status(db_match_data['symbol'], 'mar3')
-                        trading_summary["sum_mar3"] += 1
+                        purchase_price = buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
+                        if purchase_price:
+                            update_margin_status(db_match_data['symbol'], 'mar3', purchase_price)
+                            trading_summary["sum_mar3"] += 1
                     continue
 
                 # Check and purchase at margin5 if limit not reached
                 if trading_summary["sum_mar5"] < coin_limits["margin5count"]:
                     if api_last_price >= margin5 and not db_match_data['mar5']:
                         logging.info(f"Purchasing {ele['symbol']} at 5% margin.")
-                        buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
-                        update_margin_status(db_match_data['symbol'], 'mar5')
-                        trading_summary["sum_mar5"] += 1
+                        purchase_price = buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
+                        if purchase_price:
+                            update_margin_status(db_match_data['symbol'], 'mar5', purchase_price)
+                            trading_summary["sum_mar5"] += 1
                     continue
 
                 # Check and purchase at margin10 if limit not reached
                 if trading_summary["sum_mar10"] < coin_limits["margin10count"]:
                     if api_last_price >= margin10 and not db_match_data['mar10']:
                         logging.info(f"Purchasing {ele['symbol']} at 10% margin.")
-                        buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
-                        update_margin_status(db_match_data['symbol'], 'mar10')
-                        trading_summary["sum_mar10"] += 1
+                        purchase_price = buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
+                        if purchase_price:
+                            update_margin_status(db_match_data['symbol'], 'mar10', purchase_price)
+                            trading_summary["sum_mar10"] += 1
                     continue
 
                 # Check and purchase at margin20 if limit not reached
                 if trading_summary["sum_mar20"] < coin_limits["margin20count"]:
                     if api_last_price >= margin20 and not db_match_data['mar20']:
                         logging.info(f"Purchasing {ele['symbol']} at 20% margin.")
-                        buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
-                        update_margin_status(db_match_data['symbol'], 'mar20')
-                        trading_summary["sum_mar20"] += 1
+                        purchase_price = buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
+                        if purchase_price:
+                            update_margin_status(db_match_data['symbol'], 'mar20', purchase_price)
+                            trading_summary["sum_mar20"] += 1
                     continue
 
     except Exception as e:
         logging.error(f"Error in task processing: {e}")
-
-def update_margin_status(symbol, margin_level):
-    """Update the margin status in the database for a purchased coin."""
-    connection, cursor = get_db_connection()
-    try:
-        sql_update_trading = f"UPDATE trading SET {margin_level} = TRUE, status = '1' WHERE symbol = %s"
-        cursor.execute(sql_update_trading, (symbol,))
-        connection.commit()
-        logging.info(f"{symbol} purchased at {margin_level}. Status updated to 1.")
-    except Exception as e:
-        logging.error(f"Error updating margin status for {symbol}: {e}")
-    finally:
-        cursor.close()
-        connection.close()
 
 def show():
     """Execute the buying logic once and return."""
