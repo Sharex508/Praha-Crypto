@@ -38,4 +38,4 @@ def buy_asset_with_usd(asset_symbol, usd_amount):
         notisend(error_message)  # Send error notification
 
 # Example: Buy $5 worth of NEIRO
-buy_asset_with_usd('NEIROUSDT', 5)
+buy_asset_with_usd('ADAUSDT', 5)
