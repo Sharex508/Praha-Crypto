@@ -1,7 +1,6 @@
 # notification_exe.py
 
 from coinNotification import notify_price_increase
-from Buy import get_data_from_binance  # Import get_data_from_wazirx from Buy.py
 import time
 import logging
 
