@@ -1,7 +1,7 @@
 # notification_exe.py
 
 from coinNotification import notify_price_increase
-from Buy import get_data_from_wazirx  # Import get_data_from_wazirx from Buy.py
+from Buy import get_data_from_binance  # Import get_data_from_wazirx from Buy.py
 import time
 import logging
 
@@ -16,7 +16,7 @@ def main():
             logging.info(f"Starting notification iteration at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
             # Fetch the latest API response to use for notifications
-            api_resp = get_data_from_wazirx()  # Fetch the latest data
+            api_resp = get_data_from_binance()  # Fetch the latest data
 
             # Execute the notification logic
             notify_price_increase(api_resp)
