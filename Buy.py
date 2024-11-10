@@ -4,27 +4,50 @@ import requests
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import threading
+from binance.spot import Spot as Client
+from notifications import notisend  # Ensure this module exists and is properly configured
+import os
 
 # Set up logging to show only purchase-related actions
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("buy.log"),
+        logging.StreamHandler()
+    ]
+)
 
 # Initialize a lock for synchronizing access to the purchase counts
 purchase_lock = threading.Lock()
 
+# Initialize Binance client with API keys from environment variables
+API_KEY = os.getenv('BINANCE_API_KEY')       # Ensure this environment variable is set
+API_SECRET = os.getenv('BINANCE_API_SECRET') # Ensure this environment variable is set
+client = Client(API_KEY, API_SECRET)
+
 def get_db_connection():
     """Establish and return a connection to the PostgreSQL database."""
-    connection = psycopg2.connect(user="postgres",
-                                  password="Harsha508",
-                                  host="harshacry.c3cca44au3xf.ap-south-1.rds.amazonaws.com",
-                                  port="5432",
-                                  database="HarshaCry")
+    connection = psycopg2.connect(
+        user="postgres",
+        password="Harsha508",
+        host="harshacry.c3cca44au3xf.ap-south-1.rds.amazonaws.com",
+        port="5432",
+        database="HarshaCry"
+    )
     return connection, connection.cursor()
 
-def get_data_from_wazirx(filter='USDT'):
+def get_data_from_binance(filter='USDT'):
     """Fetch price data from Binance API."""
-    data = requests.get('https://api.binance.com/api/v3/ticker/price').json()
-    resp = [d for d in data if filter in d['symbol'] and 'price' in d]
-    return resp
+    try:
+        response = requests.get('https://api.binance.com/api/v3/ticker/price')
+        response.raise_for_status()
+        data = response.json()
+        resp = [d for d in data if filter in d['symbol'] and 'price' in d]
+        return resp
+    except Exception as e:
+        logging.error(f"Error fetching data from Binance API: {e}")
+        return []
 
 def get_coin_limits():
     """Fetch coin limits from the Coinnumber table."""
@@ -108,19 +131,51 @@ def get_results():
         cursor.close()
         connection.close()
 
+def buy_asset_with_usd(asset_symbol, usd_amount):
+    """
+    Purchase an amount of asset specified in USD using Binance Spot API.
+    
+    Parameters:
+    asset_symbol (str): The symbol of the asset to buy (e.g., 'NEIROUSDT').
+    usd_amount (float): The USD amount to spend on the purchase, assuming USD ≈ USDT.
+    """
+    # Convert USD amount to USDT amount, assuming 1 USD ≈ 1 USDT
+    usdt_amount = usd_amount  # This example assumes 1 USD ≈ 1 USDT
+    
+    # Specify the market pair (e.g., NEIROUSDT)
+    asset_pair = asset_symbol 
+    
+    try:
+        # Create a market buy order by specifying the amount of USDT to spend
+        order = client.new_order(
+            symbol=asset_pair,
+            side='BUY',
+            type='MARKET',
+            quoteOrderQty=str(usdt_amount)  # Convert to string as required by the API
+        )
+        success_message = f"Successfully purchased {asset_symbol} worth ${usd_amount} USD."
+        print(success_message)
+        notisend(success_message)  # Send notification
+        logging.info(success_message)
+    except Exception as e:
+        error_message = f"An error occurred while purchasing {asset_symbol}: {e}"
+        print(error_message)
+        notisend(error_message)  # Send error notification
+        logging.error(error_message)
+
 def task(db_resp, api_resp, coin_limits, trading_summary, data):
     """Process each chunk of data and make purchases based on the margin logic."""
     try:
         for ele in data:
-            db_match_data = next((item for item in db_resp if item["symbol"] == ele), None)
+            db_match_data = next((item for item in db_resp if item["symbol"] == ele["symbol"]), None)
             if not db_match_data:
                 continue
-            api_match_data = next((item for item in api_resp if item["symbol"] == ele), None)
+            api_match_data = next((item for item in api_resp if item["symbol"] == ele["symbol"]), None)
             if not api_match_data:
                 continue
 
             api_last_price = float(api_match_data['price'] or 0.0)
-            db_price = float(db_match_data.get("initialPrice") or 0.0)
+            db_price = float(db_match_data.get("intialPrice") or 0.0)
 
             # Convert the margin values from string to float before comparison
             margin3 = float(db_match_data["margin3"] or 0.0)
@@ -133,7 +188,8 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                 # Check and purchase at margin3 if limit not reached
                 if trading_summary["sum_mar3"] < coin_limits["margin3count"]:
                     if api_last_price >= margin3 and not db_match_data['mar3']:
-                        logging.info(f"Purchasing {ele} at 3% margin.")
+                        logging.info(f"Purchasing {ele['symbol']} at 3% margin.")
+                        buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
                         update_margin_status(db_match_data['symbol'], 'mar3')
                         trading_summary["sum_mar3"] += 1
                     continue
@@ -141,7 +197,8 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                 # Check and purchase at margin5 if limit not reached
                 if trading_summary["sum_mar5"] < coin_limits["margin5count"]:
                     if api_last_price >= margin5 and not db_match_data['mar5']:
-                        logging.info(f"Purchasing {ele} at 5% margin.")
+                        logging.info(f"Purchasing {ele['symbol']} at 5% margin.")
+                        buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
                         update_margin_status(db_match_data['symbol'], 'mar5')
                         trading_summary["sum_mar5"] += 1
                     continue
@@ -149,7 +206,8 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                 # Check and purchase at margin10 if limit not reached
                 if trading_summary["sum_mar10"] < coin_limits["margin10count"]:
                     if api_last_price >= margin10 and not db_match_data['mar10']:
-                        logging.info(f"Purchasing {ele} at 10% margin.")
+                        logging.info(f"Purchasing {ele['symbol']} at 10% margin.")
+                        buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
                         update_margin_status(db_match_data['symbol'], 'mar10')
                         trading_summary["sum_mar10"] += 1
                     continue
@@ -157,12 +215,14 @@ def task(db_resp, api_resp, coin_limits, trading_summary, data):
                 # Check and purchase at margin20 if limit not reached
                 if trading_summary["sum_mar20"] < coin_limits["margin20count"]:
                     if api_last_price >= margin20 and not db_match_data['mar20']:
-                        logging.info(f"Purchasing {ele} at 20% margin.")
+                        logging.info(f"Purchasing {ele['symbol']} at 20% margin.")
+                        buy_asset_with_usd(ele['symbol'], coin_limits["amount"])
                         update_margin_status(db_match_data['symbol'], 'mar20')
                         trading_summary["sum_mar20"] += 1
+                    continue
 
     except Exception as e:
-        logging.error(f"Error in task processing {ele}: {e}")
+        logging.error(f"Error in task processing: {e}")
 
 def update_margin_status(symbol, margin_level):
     """Update the margin status in the database for a purchased coin."""
@@ -177,14 +237,14 @@ def update_margin_status(symbol, margin_level):
     finally:
         cursor.close()
         connection.close()
-        
+
 def show():
     """Execute the buying logic once and return."""
     try:
         logging.info(f"Executing buying logic at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
         # Get API data
-        api_resp = get_data_from_wazirx()
+        api_resp = get_data_from_binance()
         if not api_resp:
             logging.error("Failed to retrieve data from Binance API.")
             return
@@ -199,10 +259,11 @@ def show():
         # Get DB data
         db_resp = get_results()
         if not db_resp:
+            logging.error("No trading records found.")
             return
 
         # Prepare symbols for processing
-        dicts_data = [obj['symbol'] for obj in db_resp]
+        dicts_data = db_resp  # Each item is a dict with symbol and other details
         chunk_size = min(20, len(dicts_data))
         chunks = [dicts_data[i:i + chunk_size] for i in range(0, len(dicts_data), chunk_size)]
 
@@ -213,7 +274,5 @@ def show():
     except Exception as e:
         logging.error(f"An error occurred in show(): {e}")
 
-
 if __name__ == "__main__":
     show()
-
