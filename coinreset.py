@@ -28,7 +28,7 @@ def get_database_connection():
         connection = psycopg2.connect(
             user=os.getenv('DB_USER', 'postgres'),
             password=os.getenv('DB_PASSWORD''Harsha508'),
-            host=os.getenv('DB_HOST', 'harshacry.c3cca44au3xf.ap-south-1.rds.amazonaws.com'),
+            host=os.getenv('DB_HOST', 'localhost'),
             port=os.getenv('DB_PORT', '5432'),
             database=os.getenv('DB_NAME', 'HarshaCry'),
         )
