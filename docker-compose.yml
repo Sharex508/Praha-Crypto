@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Harsha508
+      POSTGRES_DB: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  crypto-test:
+    image: crypto-test
+    container_name: crypto-test
+    depends_on:
+      - postgres
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: Harsha508
+      DB_NAME: postgres
+    ports:
+      - "8080:8080"
+    command: python exe.py
+    volumes:
+      - .:/app
+
+volumes:
+  postgres_data:

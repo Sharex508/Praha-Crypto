@@ -1,0 +1,12 @@
+ccxt==3.0.64
+fastapi==0.115.5
+psycopg2_binary==2.9.3
+pycryptodome==3.17
+pydantic==2.9.2
+pytest==8.3.3
+python-dotenv==1.0.1
+Requests==2.32.3
+responses==0.25.3
+schedule==1.1.0
+setuptools==67.6.1
+sure==2.0.1
